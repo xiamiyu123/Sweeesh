@@ -31,6 +31,13 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         rebuildMenu()
     }
 
+    func shutdown() {
+        if let settingsObserver {
+            NotificationCenter.default.removeObserver(settingsObserver)
+            self.settingsObserver = nil
+        }
+    }
+
     func menuWillOpen(_ menu: NSMenu) {
         rebuildMenu()
     }

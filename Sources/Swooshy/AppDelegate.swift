@@ -45,4 +45,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         DebugLog.info(DebugLog.app, "Swooshy launch sequence completed")
     }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        dockGestureController?.shutdown()
+        globalHotKeyController?.shutdown()
+        statusBarController?.shutdown()
+        settingsWindowController?.shutdown()
+    }
 }

@@ -68,6 +68,9 @@ struct WindowManager: WindowManaging {
         }
 
         let screens = NSScreen.screens
+        guard screens.isEmpty == false else {
+            throw WindowManagerError.unableToResolveScreen
+        }
         let screenGeometry = ScreenGeometry(screenFrames: screens.map(\.frame))
         let focusedWindow = try focusedWindowElement(in: appElement)
         let currentFrame = screenGeometry.appKitFrame(
@@ -442,8 +445,14 @@ struct WindowManager: WindowManaging {
             throw WindowManagerError.noFocusedWindow
         }
 
-        DebugLog.debug(DebugLog.windows, "Resolved focused window: \(windowSummary([unsafeDowncast(focusedWindow, to: AXUIElement.self)]))")
-        return unsafeDowncast(focusedWindow, to: AXUIElement.self)
+        guard CFGetTypeID(focusedWindow) == AXUIElementGetTypeID() else {
+            DebugLog.error(DebugLog.accessibility, "Focused window is not AXUIElement")
+            throw WindowManagerError.noFocusedWindow
+        }
+        let focusedWindowElement = unsafeDowncast(focusedWindow, to: AXUIElement.self)
+
+        DebugLog.debug(DebugLog.windows, "Resolved focused window: \(windowSummary([focusedWindowElement]))")
+        return focusedWindowElement
     }
 
     private func mainWindowElement(in appElement: AXUIElement) throws -> AXUIElement {
@@ -459,8 +468,14 @@ struct WindowManager: WindowManaging {
             throw WindowManagerError.noFocusedWindow
         }
 
-        DebugLog.debug(DebugLog.windows, "Resolved main window: \(windowSummary([unsafeDowncast(mainWindow, to: AXUIElement.self)]))")
-        return unsafeDowncast(mainWindow, to: AXUIElement.self)
+        guard CFGetTypeID(mainWindow) == AXUIElementGetTypeID() else {
+            DebugLog.error(DebugLog.accessibility, "Main window is not AXUIElement")
+            throw WindowManagerError.noFocusedWindow
+        }
+        let mainWindowElement = unsafeDowncast(mainWindow, to: AXUIElement.self)
+
+        DebugLog.debug(DebugLog.windows, "Resolved main window: \(windowSummary([mainWindowElement]))")
+        return mainWindowElement
     }
 
     private func frame(of window: AXUIElement) throws -> CGRect {
@@ -671,7 +686,12 @@ struct WindowManager: WindowManaging {
             throw WindowManagerError.unableToPerformAction
         }
 
-        return unsafeDowncast(child, to: AXUIElement.self)
+        guard CFGetTypeID(child) == AXUIElementGetTypeID() else {
+            throw WindowManagerError.unableToPerformAction
+        }
+        let element = unsafeDowncast(child, to: AXUIElement.self)
+
+        return element
     }
 
     private func setFrame(_ frame: CGRect, for window: AXUIElement) throws {
@@ -706,6 +726,9 @@ struct WindowManager: WindowManaging {
             throw WindowManagerError.unableToReadWindowFrame
         }
 
+        guard CFGetTypeID(axValue) == AXValueGetTypeID() else {
+            throw WindowManagerError.unableToReadWindowFrame
+        }
         let pointValue = unsafeDowncast(axValue, to: AXValue.self)
         guard AXValueGetType(pointValue) == .cgPoint else {
             throw WindowManagerError.unableToReadWindowFrame
@@ -727,6 +750,9 @@ struct WindowManager: WindowManaging {
             throw WindowManagerError.unableToReadWindowFrame
         }
 
+        guard CFGetTypeID(axValue) == AXValueGetTypeID() else {
+            throw WindowManagerError.unableToReadWindowFrame
+        }
         let sizeValue = unsafeDowncast(axValue, to: AXValue.self)
         guard AXValueGetType(sizeValue) == .cgSize else {
             throw WindowManagerError.unableToReadWindowFrame
@@ -752,7 +778,15 @@ struct WindowManager: WindowManaging {
             throw WindowManagerError.unableToPerformAction
         }
 
-        return CFBooleanGetValue((cfValue as! CFBoolean))
+        if let booleanValue = cfValue as? Bool {
+            return booleanValue
+        }
+
+        if let numberValue = cfValue as? NSNumber {
+            return numberValue.boolValue
+        }
+
+        throw WindowManagerError.unableToPerformAction
     }
 
     private func windowElements(in appElement: AXUIElement) throws -> [AXUIElement] {
@@ -764,7 +798,19 @@ struct WindowManager: WindowManaging {
             throw WindowManagerError.unableToEnumerateWindows
         }
 
-        return windows.map { unsafeDowncast($0, to: AXUIElement.self) }
+        let elements: [AXUIElement] = windows.compactMap { window -> AXUIElement? in
+            guard CFGetTypeID(window) == AXUIElementGetTypeID() else {
+                return nil
+            }
+            return unsafeDowncast(window, to: AXUIElement.self)
+        }
+        if elements.count != windows.count {
+            DebugLog.debug(
+                DebugLog.accessibility,
+                "Dropped \(windows.count - elements.count) non-AX entries while enumerating windows"
+            )
+        }
+        return elements
     }
 
     private func visibleWindowElements(in appElement: AXUIElement) throws -> [AXUIElement] {

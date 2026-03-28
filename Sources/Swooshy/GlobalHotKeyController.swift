@@ -25,6 +25,20 @@ final class GlobalHotKeyController {
         observeSettings()
     }
 
+    func shutdown() {
+        if let settingsObserver {
+            NotificationCenter.default.removeObserver(settingsObserver)
+            self.settingsObserver = nil
+        }
+
+        unregisterHotKeys()
+
+        if let eventHandlerRef {
+            RemoveEventHandler(eventHandlerRef)
+            self.eventHandlerRef = nil
+        }
+    }
+
     private func installEventHandler() {
         var eventSpec = EventTypeSpec(
             eventClass: OSType(kEventClassKeyboard),

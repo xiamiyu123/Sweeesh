@@ -36,6 +36,13 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         }
     }
 
+    func shutdown() {
+        if let settingsObserver {
+            NotificationCenter.default.removeObserver(settingsObserver)
+            self.settingsObserver = nil
+        }
+    }
+
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")

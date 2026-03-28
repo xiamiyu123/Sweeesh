@@ -184,25 +184,41 @@ final class SettingsStore {
     }
 
     private func persistHotKeyBindings() {
-        if let data = try? JSONEncoder().encode(hotKeyBindings) {
+        do {
+            let data = try JSONEncoder().encode(hotKeyBindings)
             userDefaults.set(data, forKey: Keys.hotKeyBindings)
+        } catch {
+            DebugLog.error(DebugLog.settings, "Failed to encode hot key bindings: \(error.localizedDescription)")
         }
     }
 
     private func persistDockGestureBindings() {
-        if let data = try? JSONEncoder().encode(dockGestureBindings) {
+        do {
+            let data = try JSONEncoder().encode(dockGestureBindings)
             userDefaults.set(data, forKey: Keys.dockGestureBindings)
+        } catch {
+            DebugLog.error(DebugLog.settings, "Failed to encode Dock gesture bindings: \(error.localizedDescription)")
         }
     }
 
     private static func decodeHotKeyBindings(from userDefaults: UserDefaults) -> [HotKeyBinding]? {
         guard let data = userDefaults.data(forKey: Keys.hotKeyBindings) else { return nil }
-        return try? JSONDecoder().decode([HotKeyBinding].self, from: data)
+        do {
+            return try JSONDecoder().decode([HotKeyBinding].self, from: data)
+        } catch {
+            DebugLog.error(DebugLog.settings, "Failed to decode hot key bindings, falling back to defaults: \(error.localizedDescription)")
+            return nil
+        }
     }
 
     private static func decodeDockGestureBindings(from userDefaults: UserDefaults) -> [DockGestureBinding]? {
         guard let data = userDefaults.data(forKey: Keys.dockGestureBindings) else { return nil }
-        return try? JSONDecoder().decode([DockGestureBinding].self, from: data)
+        do {
+            return try JSONDecoder().decode([DockGestureBinding].self, from: data)
+        } catch {
+            DebugLog.error(DebugLog.settings, "Failed to decode Dock gesture bindings, falling back to defaults: \(error.localizedDescription)")
+            return nil
+        }
     }
 
     private enum Keys {

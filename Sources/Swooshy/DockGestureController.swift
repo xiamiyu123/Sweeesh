@@ -36,6 +36,15 @@ final class DockGestureController {
         syncMonitoring()
     }
 
+    func shutdown() {
+        if let settingsObserver {
+            NotificationCenter.default.removeObserver(settingsObserver)
+            self.settingsObserver = nil
+        }
+
+        monitor.stop()
+    }
+
     private func observeSettings() {
         settingsObserver = NotificationCenter.default.addObserver(
             forName: .settingsDidChange,
@@ -423,7 +432,19 @@ private final class DockAccessibilityProbe {
             return []
         }
 
-        return children.map { unsafeDowncast($0, to: AXUIElement.self) }
+        let elements: [AXUIElement] = children.compactMap { child -> AXUIElement? in
+            guard CFGetTypeID(child) == AXUIElementGetTypeID() else {
+                return nil
+            }
+            return unsafeDowncast(child, to: AXUIElement.self)
+        }
+        if elements.count != children.count {
+            DebugLog.debug(
+                DebugLog.accessibility,
+                "Dropped \(children.count - elements.count) non-AX children for attribute \(attribute as String)"
+            )
+        }
+        return elements
     }
 
     private func childElement(attribute: CFString, from element: AXUIElement) -> [AXUIElement]? {
@@ -443,6 +464,7 @@ private final class DockAccessibilityProbe {
         let error = AXUIElementCopyAttributeValue(element, attribute, &value)
         guard error == .success, let axValue = value else { return nil }
 
+        guard CFGetTypeID(axValue) == AXValueGetTypeID() else { return nil }
         let pointValue = unsafeDowncast(axValue, to: AXValue.self)
         guard AXValueGetType(pointValue) == .cgPoint else { return nil }
 
@@ -456,6 +478,7 @@ private final class DockAccessibilityProbe {
         let error = AXUIElementCopyAttributeValue(element, attribute, &value)
         guard error == .success, let axValue = value else { return nil }
 
+        guard CFGetTypeID(axValue) == AXValueGetTypeID() else { return nil }
         let sizeValue = unsafeDowncast(axValue, to: AXValue.self)
         guard AXValueGetType(sizeValue) == .cgSize else { return nil }
 

@@ -63,27 +63,36 @@ final class DockGestureController {
     }
 
     private func syncMonitoring() {
-        if settingsStore.dockGesturesEnabled {
-            DebugLog.info(DebugLog.dock, "Starting experimental Dock gesture monitoring")
+        dockRecognizer = DockGestureRecognizer()
+        titleBarRecognizer = DockGestureRecognizer()
+
+        if settingsStore.dockGesturesEnabled || settingsStore.titleBarGesturesEnabled {
+            DebugLog.info(DebugLog.dock, "Starting trackpad gesture monitoring")
             monitor.startIfAvailable()
         } else {
-            DebugLog.info(DebugLog.dock, "Stopping experimental Dock gesture monitoring")
+            DebugLog.info(DebugLog.dock, "Stopping trackpad gesture monitoring")
             monitor.stop()
         }
     }
 
     private func handle(frame: TrackpadTouchFrame) {
-        guard settingsStore.dockGesturesEnabled else { return }
+        let dockGesturesEnabled = settingsStore.dockGesturesEnabled
+        let titleBarGesturesEnabled = settingsStore.titleBarGesturesEnabled
+        guard dockGesturesEnabled || titleBarGesturesEnabled else { return }
 
-        // Keep the hot path cheap: only two-finger input can produce Dock gestures.
+        // Keep the hot path cheap: only two-finger input can produce these gestures.
         guard frame.touches.count == 2 else {
-            _ = dockRecognizer.process(frame: frame, hoveredApplication: nil)
-            _ = titleBarRecognizer.process(frame: frame, hoveredApplication: nil)
+            if dockGesturesEnabled {
+                _ = dockRecognizer.process(frame: frame, hoveredApplication: nil)
+            }
+            if titleBarGesturesEnabled {
+                _ = titleBarRecognizer.process(frame: frame, hoveredApplication: nil)
+            }
             return
         }
 
-        let needsDockLookup = dockRecognizer.requiresHoveredApplication
-        let needsTitleBarLookup = titleBarRecognizer.requiresHoveredApplication
+        let needsDockLookup = dockGesturesEnabled && dockRecognizer.requiresHoveredApplication
+        let needsTitleBarLookup = titleBarGesturesEnabled && titleBarRecognizer.requiresHoveredApplication
         let mouseLocation = (needsDockLookup || needsTitleBarLookup) ? NSEvent.mouseLocation : nil
         let hoveredDockApplication = needsDockLookup ? mouseLocation.flatMap { dockProbe.hoveredApplication(at: $0) } : nil
         let hoveredTitleBarApplication = needsTitleBarLookup ? mouseLocation.flatMap { titleBarProbe.hoveredApplication(at: $0) } : nil
@@ -103,12 +112,12 @@ final class DockGestureController {
             )
         }
 
-        if let dockEvent = dockRecognizer.process(frame: frame, hoveredApplication: hoveredDockApplication) {
+        if dockGesturesEnabled, let dockEvent = dockRecognizer.process(frame: frame, hoveredApplication: hoveredDockApplication) {
             handleDockGestureEvent(dockEvent)
             return
         }
 
-        guard let titleBarEvent = titleBarRecognizer.process(frame: frame, hoveredApplication: hoveredTitleBarApplication) else {
+        guard titleBarGesturesEnabled, let titleBarEvent = titleBarRecognizer.process(frame: frame, hoveredApplication: hoveredTitleBarApplication) else {
             return
         }
 
@@ -183,18 +192,7 @@ final class DockGestureController {
     }
 
     private func titleBarAction(for gesture: DockGestureKind) -> WindowAction? {
-        switch gesture {
-        case .swipeUp:
-            return .center
-        case .swipeDown:
-            return .minimize
-        case .swipeLeft:
-            return .leftHalf
-        case .swipeRight:
-            return .rightHalf
-        case .pinchIn:
-            return nil
-        }
+        settingsStore.titleBarGestureAction(for: gesture)
     }
 
     private func shouldLogFrame(

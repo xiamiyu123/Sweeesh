@@ -1,6 +1,6 @@
 # Swooshy
 
-Swooshy is an experimental open-source macOS window utility aimed at becoming
+Swooshy is an open-source macOS window utility aimed at becoming
 an open alternative to touchpad-first window tools. The first version focuses
 on the reliable part of the stack: a menubar app that uses Accessibility APIs
 to move and resize the focused window.
@@ -11,8 +11,8 @@ to move and resize the focused window.
 - Accessibility permission prompt and refresh flow
 - Built-in English and Simplified Chinese localization
 - Global hotkeys for all core window actions
-- Settings window for language override, hotkey enable/disable, per-action shortcut recording, and per-gesture Dock action mapping
-- Experimental Dock and title-bar gestures backed by private multitouch input
+- Settings window for language override, hotkey enable/disable, per-action shortcut recording, and per-gesture Dock/title-bar action mapping
+- Dock and title-bar gestures backed by private multitouch input
 - Focused-window actions:
   - snap left half
   - snap right half
@@ -38,7 +38,7 @@ core behavior is stable and useful.
 3. Grant Accessibility access when prompted.
 4. Use the menu bar icon to trigger window actions.
 5. Open `Settings…` from the menu bar menu to change language and customize shortcuts.
-6. Experimental Dock gestures can be toggled in `Settings…`.
+6. Dock gestures can be toggled in `Settings…`.
 
 ## Local Packaging
 
@@ -46,7 +46,7 @@ core behavior is stable and useful.
   - `./scripts/package-macos-app.sh`
 - Detailed instructions: `docs/local-packaging.md`
 
-## Experimental Dock and Title-Bar Gestures
+## Dock and Title-Bar Gestures
 
 - Hover an application icon in the Dock
 - Swipe left with two fingers on the trackpad to cycle that app's windows forward
@@ -59,8 +59,8 @@ core behavior is stable and useful.
 - Swipe down with two fingers on the trackpad to minimize the focused window
 - Swipe left with two fingers on the trackpad to snap left half
 - Swipe right with two fingers on the trackpad to snap right half
-- Every Dock gesture action can be customized in `Settings…`
-- This path depends on private multitouch APIs and should be treated as experimental
+- Every Dock and title-bar gesture action can be customized in `Settings…`
+- This path depends on private multitouch APIs
 
 ## Debug Logging
 
@@ -96,7 +96,7 @@ core behavior is stable and useful.
 ## Roadmap
 
 - Expand settings with layout ratios and launch-at-login behavior
-- Add a separate experimental module for raw trackpad input
+- Add a separate module for raw trackpad input
 - Explore private-framework experiments only after the public MVP is solid
 
 ## License

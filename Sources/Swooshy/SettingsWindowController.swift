@@ -15,7 +15,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         let hostingController = NSHostingController(rootView: rootView)
         let window = NSWindow(contentViewController: hostingController)
 
-        window.setContentSize(NSSize(width: 500, height: 430))
+        window.setContentSize(NSSize(width: 560, height: 640))
         window.styleMask = [.titled, .closable, .miniaturizable]
         window.isReleasedWhenClosed = false
         window.center()
@@ -65,7 +65,7 @@ private struct SettingsView: View {
 
     var body: some View {
         Form {
-            Section(settingsStore.localized("settings.section.general")) {
+            Section {
                 Picker(
                     settingsStore.localized("settings.language.label"),
                     selection: $settingsStore.languageOverride
@@ -87,14 +87,26 @@ private struct SettingsView: View {
                     isOn: $settingsStore.debugLoggingEnabled
                 )
                 #endif
+            } header: {
+                Text(settingsStore.localized("settings.section.general"))
             }
 
-            Section(settingsStore.localized("settings.section.dock_gestures")) {
+            Section {
                 Toggle(
                     settingsStore.localized("settings.dock_gestures.enabled"),
                     isOn: $settingsStore.dockGesturesEnabled
                 )
+                Toggle(
+                    settingsStore.localized("settings.title_bar_gestures.enabled"),
+                    isOn: $settingsStore.titleBarGesturesEnabled
+                )
+            } header: {
+                Text(settingsStore.localized("settings.section.gestures"))
+            } footer: {
+                Text(settingsStore.localized("settings.gestures.footer"))
+            }
 
+            Section {
                 ForEach(DockGestureKind.allCases) { gesture in
                     DockGestureActionRow(settingsStore: settingsStore, gesture: gesture)
                         .disabled(settingsStore.dockGesturesEnabled == false)
@@ -104,9 +116,29 @@ private struct SettingsView: View {
                     settingsStore.resetDockGestureActionsToDefaults()
                 }
                 .disabled(settingsStore.dockGesturesEnabled == false)
+            } header: {
+                Text(settingsStore.localized("settings.section.dock_gestures"))
+            } footer: {
+                Text(settingsStore.localized("settings.dock_gestures.footer"))
             }
 
-            Section(settingsStore.localized("settings.section.shortcuts")) {
+            Section {
+                ForEach(TitleBarGestureBindings.supportedGestures) { gesture in
+                    TitleBarGestureActionRow(settingsStore: settingsStore, gesture: gesture)
+                        .disabled(settingsStore.titleBarGesturesEnabled == false)
+                }
+
+                Button(settingsStore.localized("settings.title_bar_gestures.reset")) {
+                    settingsStore.resetTitleBarGestureActionsToDefaults()
+                }
+                .disabled(settingsStore.titleBarGesturesEnabled == false)
+            } header: {
+                Text(settingsStore.localized("settings.section.title_bar_gestures"))
+            } footer: {
+                Text(settingsStore.localized("settings.title_bar_gestures.footer"))
+            }
+
+            Section {
                 ForEach(WindowAction.allCases, id: \.self) { action in
                     HotKeyEditorRow(settingsStore: settingsStore, action: action)
                 }
@@ -114,11 +146,13 @@ private struct SettingsView: View {
                 Button(settingsStore.localized("settings.shortcuts.reset")) {
                     settingsStore.resetHotKeysToDefaults()
                 }
+            } header: {
+                Text(settingsStore.localized("settings.section.shortcuts"))
             }
         }
         .formStyle(.grouped)
         .padding(20)
-        .frame(minWidth: 460, minHeight: 400)
+        .frame(minWidth: 500, minHeight: 520)
     }
 
     private func title(for language: AppLanguage) -> String {
@@ -139,8 +173,15 @@ private struct DockGestureActionRow: View {
 
     var body: some View {
         HStack {
-            Text(gesture.title(preferredLanguages: settingsStore.preferredLanguages))
-            Spacer()
+            Toggle(
+                gesture.title(preferredLanguages: settingsStore.preferredLanguages),
+                isOn: Binding(
+                    get: { settingsStore.dockGestureIsEnabled(for: gesture) },
+                    set: { settingsStore.updateDockGestureEnabled($0, for: gesture) }
+                )
+            )
+            .toggleStyle(.switch)
+            .frame(maxWidth: .infinity, alignment: .leading)
             Picker(
                 "",
                 selection: Binding(
@@ -154,7 +195,45 @@ private struct DockGestureActionRow: View {
             }
             .pickerStyle(.menu)
             .labelsHidden()
-            .frame(width: 200)
+            .frame(width: 220)
+            .disabled(settingsStore.dockGestureIsEnabled(for: gesture) == false)
+        }
+    }
+}
+
+private struct TitleBarGestureActionRow: View {
+    @Bindable var settingsStore: SettingsStore
+    let gesture: DockGestureKind
+
+    var body: some View {
+        HStack {
+            Toggle(
+                gesture.title(preferredLanguages: settingsStore.preferredLanguages),
+                isOn: Binding(
+                    get: { settingsStore.titleBarGestureIsEnabled(for: gesture) },
+                    set: { settingsStore.updateTitleBarGestureEnabled($0, for: gesture) }
+                )
+            )
+            .toggleStyle(.switch)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            Picker(
+                "",
+                selection: Binding(
+                    get: {
+                        settingsStore.titleBarGestureAction(for: gesture)
+                        ?? TitleBarGestureBindings.fallbackBinding(for: gesture).action
+                    },
+                    set: { settingsStore.updateTitleBarGestureAction($0, for: gesture) }
+                )
+            ) {
+                ForEach(WindowAction.allCases, id: \.self) { action in
+                    Text(action.title(preferredLanguages: settingsStore.preferredLanguages)).tag(action)
+                }
+            }
+            .pickerStyle(.menu)
+            .labelsHidden()
+            .frame(width: 220)
+            .disabled(settingsStore.titleBarGestureIsEnabled(for: gesture) == false)
         }
     }
 }

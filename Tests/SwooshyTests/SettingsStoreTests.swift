@@ -14,14 +14,22 @@ struct SettingsStoreTests {
         store.languageOverride = .simplifiedChinese
         store.hotKeysEnabled = false
         store.dockGesturesEnabled = false
+        store.titleBarGesturesEnabled = false
         store.updateDockGestureAction(.closeWindow, for: .pinchIn)
+        store.updateDockGestureEnabled(false, for: .pinchIn)
+        store.updateTitleBarGestureAction(.maximize, for: .swipeLeft)
+        store.updateTitleBarGestureEnabled(false, for: .swipeLeft)
 
         let reloadedStore = SettingsStore(userDefaults: defaults)
 
         #expect(reloadedStore.languageOverride == .simplifiedChinese)
         #expect(reloadedStore.hotKeysEnabled == false)
         #expect(reloadedStore.dockGesturesEnabled == false)
+        #expect(reloadedStore.titleBarGesturesEnabled == false)
         #expect(reloadedStore.dockGestureAction(for: .pinchIn) == .closeWindow)
+        #expect(reloadedStore.dockGestureIsEnabled(for: .pinchIn) == false)
+        #expect(reloadedStore.titleBarGestureAction(for: .swipeLeft) == .maximize)
+        #expect(reloadedStore.titleBarGestureIsEnabled(for: .swipeLeft) == false)
     }
 
     @Test
@@ -92,6 +100,49 @@ struct SettingsStoreTests {
         let store = SettingsStore(userDefaults: defaults)
         #expect(store.dockGestureAction(for: .swipeLeft) == .cycleWindowsForward)
         #expect(store.dockGestureAction(for: .swipeRight) == .cycleWindowsBackward)
+    }
+
+    @Test
+    func titleBarGesturesUseWindowSnappingByDefault() {
+        let suiteName = "Swooshy.SettingsStoreTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+
+        let store = SettingsStore(userDefaults: defaults)
+        #expect(store.titleBarGestureAction(for: .swipeLeft) == .leftHalf)
+        #expect(store.titleBarGestureAction(for: .swipeRight) == .rightHalf)
+        #expect(store.titleBarGestureAction(for: .swipeDown) == .minimize)
+        #expect(store.titleBarGestureAction(for: .swipeUp) == .center)
+        #expect(store.titleBarGestureAction(for: .pinchIn) == nil)
+    }
+
+    @Test
+    func legacyGestureBindingsWithoutEnabledFlagsStillDecode() {
+        let suiteName = "Swooshy.SettingsStoreTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+
+        let legacyDockData = Data("""
+        [
+          {"gesture":"swipeLeft","action":"closeWindow"},
+          {"gesture":"pinchIn","action":"quitApplication"}
+        ]
+        """.utf8)
+        let legacyTitleBarData = Data("""
+        [
+          {"gesture":"swipeLeft","action":2},
+          {"gesture":"swipeUp","action":3}
+        ]
+        """.utf8)
+        defaults.set(legacyDockData, forKey: "settings.dockGestureBindings")
+        defaults.set(legacyTitleBarData, forKey: "settings.titleBarGestureBindings")
+
+        let store = SettingsStore(userDefaults: defaults)
+
+        #expect(store.dockGestureAction(for: .swipeLeft) == .closeWindow)
+        #expect(store.dockGestureIsEnabled(for: .swipeLeft) == true)
+        #expect(store.titleBarGestureAction(for: .swipeLeft) == .maximize)
+        #expect(store.titleBarGestureIsEnabled(for: .swipeLeft) == true)
     }
 
     @Test

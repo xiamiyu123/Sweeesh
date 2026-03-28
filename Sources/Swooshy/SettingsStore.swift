@@ -36,6 +36,15 @@ final class SettingsStore {
         }
     }
 
+    var titleBarGesturesEnabled: Bool {
+        didSet {
+            guard oldValue != titleBarGesturesEnabled else { return }
+            userDefaults.set(titleBarGesturesEnabled, forKey: Keys.titleBarGesturesEnabled)
+            DebugLog.info(DebugLog.settings, "Title-bar gestures enabled set to \(titleBarGesturesEnabled)")
+            notifyDidChange()
+        }
+    }
+
     #if DEBUG
     var debugLoggingEnabled: Bool {
         didSet {
@@ -65,6 +74,15 @@ final class SettingsStore {
         }
     }
 
+    var titleBarGestureBindings: [TitleBarGestureBinding] {
+        didSet {
+            guard oldValue != titleBarGestureBindings else { return }
+            persistTitleBarGestureBindings()
+            DebugLog.debug(DebugLog.settings, "Persisted \(titleBarGestureBindings.count) title-bar gesture bindings")
+            notifyDidChange()
+        }
+    }
+
     var preferredLanguages: [String] {
         languageOverride.preferredLanguages ?? Locale.preferredLanguages
     }
@@ -84,6 +102,11 @@ final class SettingsStore {
         } else {
             self.dockGesturesEnabled = userDefaults.bool(forKey: Keys.dockGesturesEnabled)
         }
+        if userDefaults.object(forKey: Keys.titleBarGesturesEnabled) == nil {
+            self.titleBarGesturesEnabled = true
+        } else {
+            self.titleBarGesturesEnabled = userDefaults.bool(forKey: Keys.titleBarGesturesEnabled)
+        }
         #if DEBUG
         if userDefaults.object(forKey: Keys.debugLoggingEnabled) == nil {
             self.debugLoggingEnabled = false
@@ -93,6 +116,7 @@ final class SettingsStore {
         #endif
         self.hotKeyBindings = Self.decodeHotKeyBindings(from: userDefaults) ?? HotKeyBindings.defaults
         self.dockGestureBindings = Self.decodeDockGestureBindings(from: userDefaults) ?? DockGestureBindings.defaults
+        self.titleBarGestureBindings = Self.decodeTitleBarGestureBindings(from: userDefaults) ?? TitleBarGestureBindings.defaults
     }
 
     func localized(_ key: String) -> String {
@@ -146,20 +170,52 @@ final class SettingsStore {
         hotKeyBindings = HotKeyBindings.defaults
     }
 
+    func dockGestureBinding(for gesture: DockGestureKind) -> DockGestureBinding {
+        DockGestureBindings.binding(for: gesture, in: dockGestureBindings)
+    }
+
     func dockGestureAction(for gesture: DockGestureKind) -> DockGestureAction {
-        DockGestureBindings.action(for: gesture, in: dockGestureBindings)
+        dockGestureBinding(for: gesture).action
+    }
+
+    func dockGestureIsEnabled(for gesture: DockGestureKind) -> Bool {
+        dockGestureBinding(for: gesture).isEnabled
+    }
+
+    func updateDockGestureEnabled(_ isEnabled: Bool, for gesture: DockGestureKind) {
+        updateDockGestureBinding(
+            DockGestureBinding(
+                gesture: gesture,
+                isEnabled: isEnabled,
+                action: dockGestureBinding(for: gesture).action
+            )
+        )
     }
 
     func updateDockGestureAction(_ action: DockGestureAction, for gesture: DockGestureKind) {
+        updateDockGestureBinding(
+            DockGestureBinding(
+                gesture: gesture,
+                isEnabled: dockGestureBinding(for: gesture).isEnabled,
+                action: action
+            )
+        )
+    }
+
+    func resetDockGestureActionsToDefaults() {
+        dockGestureBindings = DockGestureBindings.defaults
+    }
+
+    private func updateDockGestureBinding(_ binding: DockGestureBinding) {
         var newBindings = dockGestureBindings
 
-        if let index = newBindings.firstIndex(where: { $0.gesture == gesture }) {
-            if newBindings[index].action == action {
+        if let index = newBindings.firstIndex(where: { $0.gesture == binding.gesture }) {
+            if newBindings[index] == binding {
                 return
             }
-            newBindings[index] = DockGestureBinding(gesture: gesture, action: action)
+            newBindings[index] = binding
         } else {
-            newBindings.append(DockGestureBinding(gesture: gesture, action: action))
+            newBindings.append(binding)
         }
 
         dockGestureBindings = newBindings.sorted { lhs, rhs in
@@ -167,8 +223,59 @@ final class SettingsStore {
         }
     }
 
-    func resetDockGestureActionsToDefaults() {
-        dockGestureBindings = DockGestureBindings.defaults
+    func titleBarGestureBinding(for gesture: DockGestureKind) -> TitleBarGestureBinding? {
+        TitleBarGestureBindings.binding(for: gesture, in: titleBarGestureBindings)
+    }
+
+    func titleBarGestureAction(for gesture: DockGestureKind) -> WindowAction? {
+        titleBarGestureBinding(for: gesture)?.action
+    }
+
+    func titleBarGestureIsEnabled(for gesture: DockGestureKind) -> Bool {
+        titleBarGestureBinding(for: gesture)?.isEnabled ?? false
+    }
+
+    func updateTitleBarGestureEnabled(_ isEnabled: Bool, for gesture: DockGestureKind) {
+        guard let current = titleBarGestureBinding(for: gesture) else { return }
+        updateTitleBarGestureBinding(
+            TitleBarGestureBinding(
+                gesture: gesture,
+                isEnabled: isEnabled,
+                action: current.action
+            )
+        )
+    }
+
+    func updateTitleBarGestureAction(_ action: WindowAction, for gesture: DockGestureKind) {
+        guard let current = titleBarGestureBinding(for: gesture) else { return }
+        updateTitleBarGestureBinding(
+            TitleBarGestureBinding(
+                gesture: gesture,
+                isEnabled: current.isEnabled,
+                action: action
+            )
+        )
+    }
+
+    func resetTitleBarGestureActionsToDefaults() {
+        titleBarGestureBindings = TitleBarGestureBindings.defaults
+    }
+
+    private func updateTitleBarGestureBinding(_ binding: TitleBarGestureBinding) {
+        var newBindings = titleBarGestureBindings
+
+        if let index = newBindings.firstIndex(where: { $0.gesture == binding.gesture }) {
+            if newBindings[index] == binding {
+                return
+            }
+            newBindings[index] = binding
+        } else {
+            newBindings.append(binding)
+        }
+
+        titleBarGestureBindings = newBindings.sorted { lhs, rhs in
+            lhs.gesture.rawValue < rhs.gesture.rawValue
+        }
     }
 
     private func notifyDidChange() {
@@ -201,6 +308,15 @@ final class SettingsStore {
         }
     }
 
+    private func persistTitleBarGestureBindings() {
+        do {
+            let data = try JSONEncoder().encode(titleBarGestureBindings)
+            userDefaults.set(data, forKey: Keys.titleBarGestureBindings)
+        } catch {
+            DebugLog.error(DebugLog.settings, "Failed to encode title-bar gesture bindings: \(error.localizedDescription)")
+        }
+    }
+
     private static func decodeHotKeyBindings(from userDefaults: UserDefaults) -> [HotKeyBinding]? {
         guard let data = userDefaults.data(forKey: Keys.hotKeyBindings) else { return nil }
         do {
@@ -221,14 +337,26 @@ final class SettingsStore {
         }
     }
 
+    private static func decodeTitleBarGestureBindings(from userDefaults: UserDefaults) -> [TitleBarGestureBinding]? {
+        guard let data = userDefaults.data(forKey: Keys.titleBarGestureBindings) else { return nil }
+        do {
+            return try JSONDecoder().decode([TitleBarGestureBinding].self, from: data)
+        } catch {
+            DebugLog.error(DebugLog.settings, "Failed to decode title-bar gesture bindings, falling back to defaults: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
     private enum Keys {
         static let languageOverride = "settings.languageOverride"
         static let hotKeysEnabled = "settings.hotKeysEnabled"
         static let dockGesturesEnabled = "settings.dockGesturesEnabled"
+        static let titleBarGesturesEnabled = "settings.titleBarGesturesEnabled"
         #if DEBUG
         static let debugLoggingEnabled = "settings.debugLoggingEnabled"
         #endif
         static let hotKeyBindings = "settings.hotKeyBindings"
         static let dockGestureBindings = "settings.dockGestureBindings"
+        static let titleBarGestureBindings = "settings.titleBarGestureBindings"
     }
 }

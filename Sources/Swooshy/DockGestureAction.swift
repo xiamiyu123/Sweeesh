@@ -105,7 +105,27 @@ enum DockGestureAction: String, CaseIterable, Codable, Hashable, Identifiable, S
 
 struct DockGestureBinding: Codable, Equatable, Hashable, Sendable {
     let gesture: DockGestureKind
-    let action: DockGestureAction
+    var isEnabled: Bool
+    var action: DockGestureAction
+
+    init(gesture: DockGestureKind, isEnabled: Bool = true, action: DockGestureAction) {
+        self.gesture = gesture
+        self.isEnabled = isEnabled
+        self.action = action
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case gesture
+        case isEnabled
+        case action
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        gesture = try container.decode(DockGestureKind.self, forKey: .gesture)
+        isEnabled = try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
+        action = try container.decode(DockGestureAction.self, forKey: .action)
+    }
 }
 
 enum DockGestureBindings {
@@ -117,25 +137,103 @@ enum DockGestureBindings {
         DockGestureBinding(gesture: .pinchIn, action: .quitApplication),
     ]
 
-    static func fallbackAction(for gesture: DockGestureKind) -> DockGestureAction {
+    static func fallbackBinding(for gesture: DockGestureKind) -> DockGestureBinding {
         switch gesture {
         case .swipeLeft:
-            return .cycleWindowsForward
+            return DockGestureBinding(gesture: .swipeLeft, action: .cycleWindowsForward)
         case .swipeRight:
-            return .cycleWindowsBackward
+            return DockGestureBinding(gesture: .swipeRight, action: .cycleWindowsBackward)
         case .swipeDown:
-            return .minimizeWindow
+            return DockGestureBinding(gesture: .swipeDown, action: .minimizeWindow)
         case .swipeUp:
-            return .restoreWindow
+            return DockGestureBinding(gesture: .swipeUp, action: .restoreWindow)
         case .pinchIn:
-            return .quitApplication
+            return DockGestureBinding(gesture: .pinchIn, action: .quitApplication)
         }
+    }
+
+    static func binding(
+        for gesture: DockGestureKind,
+        in bindings: [DockGestureBinding]
+    ) -> DockGestureBinding {
+        bindings.first(where: { $0.gesture == gesture }) ?? fallbackBinding(for: gesture)
     }
 
     static func action(
         for gesture: DockGestureKind,
         in bindings: [DockGestureBinding]
     ) -> DockGestureAction {
-        bindings.first(where: { $0.gesture == gesture })?.action ?? fallbackAction(for: gesture)
+        binding(for: gesture, in: bindings).action
+    }
+}
+
+struct TitleBarGestureBinding: Codable, Equatable, Hashable, Sendable {
+    let gesture: DockGestureKind
+    var isEnabled: Bool
+    var action: WindowAction
+
+    init(gesture: DockGestureKind, isEnabled: Bool = true, action: WindowAction) {
+        self.gesture = gesture
+        self.isEnabled = isEnabled
+        self.action = action
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case gesture
+        case isEnabled
+        case action
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        gesture = try container.decode(DockGestureKind.self, forKey: .gesture)
+        isEnabled = try container.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
+        action = try container.decode(WindowAction.self, forKey: .action)
+    }
+}
+
+enum TitleBarGestureBindings {
+    static let supportedGestures: [DockGestureKind] = [
+        .swipeLeft,
+        .swipeRight,
+        .swipeDown,
+        .swipeUp,
+    ]
+
+    static let defaults: [TitleBarGestureBinding] = [
+        TitleBarGestureBinding(gesture: .swipeLeft, action: .leftHalf),
+        TitleBarGestureBinding(gesture: .swipeRight, action: .rightHalf),
+        TitleBarGestureBinding(gesture: .swipeDown, action: .minimize),
+        TitleBarGestureBinding(gesture: .swipeUp, action: .center),
+    ]
+
+    static func fallbackBinding(for gesture: DockGestureKind) -> TitleBarGestureBinding {
+        switch gesture {
+        case .swipeLeft:
+            return TitleBarGestureBinding(gesture: .swipeLeft, action: .leftHalf)
+        case .swipeRight:
+            return TitleBarGestureBinding(gesture: .swipeRight, action: .rightHalf)
+        case .swipeDown:
+            return TitleBarGestureBinding(gesture: .swipeDown, action: .minimize)
+        case .swipeUp:
+            return TitleBarGestureBinding(gesture: .swipeUp, action: .center)
+        case .pinchIn:
+            return TitleBarGestureBinding(gesture: .pinchIn, action: .center)
+        }
+    }
+
+    static func binding(
+        for gesture: DockGestureKind,
+        in bindings: [TitleBarGestureBinding]
+    ) -> TitleBarGestureBinding? {
+        guard supportedGestures.contains(gesture) else { return nil }
+        return bindings.first(where: { $0.gesture == gesture }) ?? fallbackBinding(for: gesture)
+    }
+
+    static func action(
+        for gesture: DockGestureKind,
+        in bindings: [TitleBarGestureBinding]
+    ) -> WindowAction? {
+        binding(for: gesture, in: bindings)?.action
     }
 }

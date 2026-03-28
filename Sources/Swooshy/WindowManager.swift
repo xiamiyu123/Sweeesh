@@ -7,6 +7,20 @@ enum WindowCycleDirection {
     case backward
 }
 
+private enum FrameWriteOrder: String {
+    case sizeThenPosition
+    case positionThenSize
+
+    var alternate: Self {
+        switch self {
+        case .sizeThenPosition:
+            return .positionThenSize
+        case .positionThenSize:
+            return .sizeThenPosition
+        }
+    }
+}
+
 @MainActor
 protocol WindowManaging {
     func perform(_ action: WindowAction, layoutEngine: WindowLayoutEngine) throws
@@ -763,16 +777,102 @@ struct WindowManager: WindowManaging {
             throw WindowManagerError.unableToSetFrame
         }
 
-        let sizeError = AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, sizeValue)
-        let positionError = AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, positionValue)
+        let currentFrame = try? self.frame(of: window)
+        let preferredOrder = frameWriteOrder(from: currentFrame, to: frame)
+
+        DebugLog.debug(
+            DebugLog.windows,
+            "Applying AX frame using \(preferredOrder.rawValue); current AX frame = \(currentFrame.map(NSStringFromRect) ?? "unknown"), target AX frame = \(NSStringFromRect(frame))"
+        )
+
+        try applyFrame(
+            window: window,
+            originValue: positionValue,
+            sizeValue: sizeValue,
+            origin: origin,
+            size: size,
+            order: preferredOrder
+        )
+
+        guard let appliedFrame = try? self.frame(of: window) else {
+            return
+        }
+
+        if framesAreClose(appliedFrame, frame) == false {
+            let fallbackOrder = preferredOrder.alternate
+            DebugLog.debug(
+                DebugLog.windows,
+                "AX frame readback mismatch after \(preferredOrder.rawValue). Applied = \(NSStringFromRect(appliedFrame)), target = \(NSStringFromRect(frame)). Retrying with \(fallbackOrder.rawValue)"
+            )
+
+            try applyFrame(
+                window: window,
+                originValue: positionValue,
+                sizeValue: sizeValue,
+                origin: origin,
+                size: size,
+                order: fallbackOrder
+            )
+
+            guard let retriedFrame = try? self.frame(of: window), framesAreClose(retriedFrame, frame) else {
+                let finalFrame = (try? self.frame(of: window)).map(NSStringFromRect) ?? "unavailable"
+                DebugLog.error(
+                    DebugLog.accessibility,
+                    "Failed to apply requested frame for window \(windowSummary([window])). Requested origin = \(NSStringFromPoint(origin)), size = \(NSStringFromSize(size)), final AX frame = \(finalFrame)"
+                )
+                throw WindowManagerError.unableToSetFrame
+            }
+        }
+    }
+
+    private func applyFrame(
+        window: AXUIElement,
+        originValue: AXValue,
+        sizeValue: AXValue,
+        origin: CGPoint,
+        size: CGSize,
+        order: FrameWriteOrder
+    ) throws {
+        let sizeError: AXError
+        let positionError: AXError
+
+        switch order {
+        case .sizeThenPosition:
+            sizeError = AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, sizeValue)
+            positionError = AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, originValue)
+        case .positionThenSize:
+            positionError = AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, originValue)
+            sizeError = AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, sizeValue)
+        }
 
         guard sizeError == .success, positionError == .success else {
             DebugLog.error(
                 DebugLog.accessibility,
-                "Failed to set frame for window \(windowSummary([window])). Requested origin = \(NSStringFromPoint(origin)), size = \(NSStringFromSize(size)), size error = \(sizeError.rawValue), position error = \(positionError.rawValue)"
+                "Failed to set frame for window \(windowSummary([window])) using \(order.rawValue). Requested origin = \(NSStringFromPoint(origin)), size = \(NSStringFromSize(size)), size error = \(sizeError.rawValue), position error = \(positionError.rawValue)"
             )
             throw WindowManagerError.unableToSetFrame
         }
+    }
+
+    private func frameWriteOrder(from currentFrame: CGRect?, to targetFrame: CGRect) -> FrameWriteOrder {
+        guard let currentFrame else {
+            return .sizeThenPosition
+        }
+
+        // When a window needs to expand while also moving toward the origin,
+        // some apps clamp the size before the position update lands. Move first.
+        if targetFrame.minX < currentFrame.minX || targetFrame.minY < currentFrame.minY {
+            return .positionThenSize
+        }
+
+        return .sizeThenPosition
+    }
+
+    private func framesAreClose(_ lhs: CGRect, _ rhs: CGRect, tolerance: CGFloat = 1) -> Bool {
+        abs(lhs.minX - rhs.minX) <= tolerance &&
+        abs(lhs.minY - rhs.minY) <= tolerance &&
+        abs(lhs.width - rhs.width) <= tolerance &&
+        abs(lhs.height - rhs.height) <= tolerance
     }
 
     private func logScreenConfiguration(_ screens: [NSScreen], preferredAppKitPoint: CGPoint?) {

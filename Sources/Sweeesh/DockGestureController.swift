@@ -58,10 +58,14 @@ final class DockGestureController {
     private func handle(frame: TrackpadTouchFrame) {
         guard settingsStore.dockGesturesEnabled else { return }
 
-        let hoveredApplication = dockProbe.hoveredApplicationName(at: NSEvent.mouseLocation)
+        let mouseLocation = NSEvent.mouseLocation
+        let touchSummary = frame.touches
+            .map { "#\($0.identifier)=\(NSStringFromPoint($0.position))" }
+            .joined(separator: ", ")
+        let hoveredApplication = dockProbe.hoveredApplicationName(at: mouseLocation)
         DebugLog.debug(
             DebugLog.dock,
-            "Received touch frame with \(frame.touches.count) touches; hovered application = \(hoveredApplication ?? "nil")"
+            "Received touch frame with \(frame.touches.count) touches at mouse \(NSStringFromPoint(mouseLocation)); hovered application = \(hoveredApplication ?? "nil"); touches = [\(touchSummary)]"
         )
         guard let event = recognizer.process(frame: frame, hoveredApplicationName: hoveredApplication) else {
             return
@@ -116,6 +120,7 @@ private struct DockAccessibilityProbe {
         }
 
         let geometry = ScreenGeometry(screenFrames: NSScreen.screens.map(\.frame))
+        var candidates: [DockItemCandidate] = []
 
         for item in childElements(attribute: kAXChildrenAttribute as CFString, from: dockList) {
             guard let itemName = stringAttribute(kAXTitleAttribute as CFString, from: item) else {
@@ -136,14 +141,47 @@ private struct DockAccessibilityProbe {
             let appKitFrame = geometry.appKitFrame(
                 fromAXFrame: CGRect(origin: axPosition, size: axSize)
             )
+            let distance = distanceFromPoint(appKitPoint, to: appKitFrame)
+            let candidate = DockItemCandidate(
+                name: itemName,
+                frame: appKitFrame,
+                distance: distance
+            )
+            candidates.append(candidate)
 
             if appKitFrame.contains(appKitPoint) {
-                DebugLog.debug(DebugLog.dock, "Pointer hit Dock item \(itemName) at \(NSStringFromPoint(appKitPoint))")
+                DebugLog.debug(
+                    DebugLog.dock,
+                    "Pointer hit Dock item \(itemName) at \(NSStringFromPoint(appKitPoint)); frame = \(NSStringFromRect(appKitFrame)); distance = \(String(format: "%.2f", distance))"
+                )
                 return itemName
             }
         }
 
+        let nearestSummary = candidates
+            .sorted { $0.distance < $1.distance }
+            .prefix(4)
+            .map {
+                "\($0.name){frame=\(NSStringFromRect($0.frame)), distance=\(String(format: "%.2f", $0.distance))}"
+            }
+            .joined(separator: ", ")
+
+        DebugLog.debug(
+            DebugLog.dock,
+            "Pointer missed all Dock items at \(NSStringFromPoint(appKitPoint)); evaluated \(candidates.count) candidates; nearest = [\(nearestSummary)]"
+        )
+
         return nil
+    }
+
+    private func distanceFromPoint(_ point: CGPoint, to frame: CGRect) -> CGFloat {
+        if frame.contains(point) {
+            return 0
+        }
+
+        let dx = max(frame.minX - point.x, 0, point.x - frame.maxX)
+        let dy = max(frame.minY - point.y, 0, point.y - frame.maxY)
+        return sqrt((dx * dx) + (dy * dy))
     }
 
     private func childElements(attribute: CFString, from element: AXUIElement) -> [AXUIElement] {
@@ -193,6 +231,12 @@ private struct DockAccessibilityProbe {
         var size = CGSize.zero
         guard AXValueGetValue(sizeValue, .cgSize, &size) else { return nil }
         return size
+    }
+
+    private struct DockItemCandidate {
+        let name: String
+        let frame: CGRect
+        let distance: CGFloat
     }
 }
 

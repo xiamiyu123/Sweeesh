@@ -94,6 +94,10 @@ struct WindowManager: WindowManaging {
         let app = try runningApplication(named: applicationName)
         let appElement = AXUIElementCreateApplication(app.processIdentifier)
         let windows = try windowElements(in: appElement).filter { !isMinimized($0) }
+        DebugLog.debug(
+            DebugLog.windows,
+            "Visible window candidates for \(applicationName): [\(windowSummary(windows))]"
+        )
 
         guard let targetWindow = windows.first else {
             DebugLog.debug(DebugLog.windows, "No visible window found to minimize for \(applicationName)")
@@ -115,6 +119,10 @@ struct WindowManager: WindowManaging {
         let app = try runningApplication(named: applicationName)
         let appElement = AXUIElementCreateApplication(app.processIdentifier)
         let windows = try windowElements(in: appElement).filter { isMinimized($0) }
+        DebugLog.debug(
+            DebugLog.windows,
+            "Minimized window candidates for \(applicationName): [\(windowSummary(windows))]"
+        )
 
         guard let targetWindow = windows.first else {
             _ = app.activate(options: [.activateAllWindows])
@@ -146,9 +154,11 @@ struct WindowManager: WindowManaging {
         )
 
         guard error == .success, let focusedWindow = focusedWindowValue else {
+            DebugLog.error(DebugLog.accessibility, "Failed to read focused window; AX error = \(error.rawValue)")
             throw WindowManagerError.noFocusedWindow
         }
 
+        DebugLog.debug(DebugLog.windows, "Resolved focused window: \(windowSummary([unsafeDowncast(focusedWindow, to: AXUIElement.self)]))")
         return unsafeDowncast(focusedWindow, to: AXUIElement.self)
     }
 
@@ -174,8 +184,10 @@ struct WindowManager: WindowManaging {
                 value
             )
             guard setError == .success else {
+                DebugLog.error(DebugLog.accessibility, "Setting AXMinimized=\(minimized) failed with error \(setError.rawValue) for window \(windowSummary([window]))")
                 throw WindowManagerError.unableToPerformAction
             }
+            DebugLog.debug(DebugLog.windows, "Set AXMinimized=\(minimized) for window \(windowSummary([window]))")
             return
         }
 
@@ -224,6 +236,7 @@ struct WindowManager: WindowManaging {
     }
 
     private func bringWindowToFront(_ window: AXUIElement, for app: NSRunningApplication) throws {
+        DebugLog.debug(DebugLog.windows, "Bringing window to front for app \(app.localizedName ?? "unknown"): \(windowSummary([window]))")
         _ = app.activate(options: [.activateAllWindows])
 
         // Restored windows can take a moment to become orderable, so raise twice
@@ -233,6 +246,7 @@ struct WindowManager: WindowManaging {
         try setBooleanAttribute(kAXFocusedAttribute as CFString, value: true, on: window)
         try performAction(kAXRaiseAction as CFString, on: window)
         NSApp.activate(ignoringOtherApps: true)
+        DebugLog.debug(DebugLog.windows, "Finished bring-to-front sequence for window \(windowSummary([window]))")
     }
 
     private func setBooleanAttribute(_ attribute: CFString, value: Bool, on element: AXUIElement) throws {
@@ -341,6 +355,7 @@ struct WindowManager: WindowManaging {
         let error = AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &value)
 
         guard error == .success, let windows = value as? [AnyObject] else {
+            DebugLog.error(DebugLog.accessibility, "Failed to enumerate windows; AX error = \(error.rawValue)")
             throw WindowManagerError.unableToEnumerateWindows
         }
 
@@ -349,6 +364,32 @@ struct WindowManager: WindowManaging {
 
     private func isMinimized(_ window: AXUIElement) -> Bool {
         (try? booleanAttribute(kAXMinimizedAttribute as CFString, from: window)) ?? false
+    }
+
+    private func windowSummary(_ windows: [AXUIElement]) -> String {
+        windows.map { window in
+            let title = (try? stringAttribute(kAXTitleAttribute as CFString, from: window)) ?? "<untitled>"
+            let minimized = ((try? booleanAttribute(kAXMinimizedAttribute as CFString, from: window)) ?? false) ? "min" : "visible"
+            let frameDescription: String
+            if let frame = try? frame(of: window) {
+                frameDescription = NSStringFromRect(frame)
+            } else {
+                frameDescription = "<unknown-frame>"
+            }
+            return "\"\(title)\"{\(minimized), frame=\(frameDescription)}"
+        }
+        .joined(separator: ", ")
+    }
+
+    private func stringAttribute(_ attribute: CFString, from element: AXUIElement) throws -> String {
+        var value: CFTypeRef?
+        let error = AXUIElementCopyAttributeValue(element, attribute, &value)
+
+        guard error == .success, let stringValue = value as? String else {
+            throw WindowManagerError.unableToPerformAction
+        }
+
+        return stringValue
     }
 }
 

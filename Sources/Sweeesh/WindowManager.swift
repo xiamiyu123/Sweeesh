@@ -109,10 +109,7 @@ struct WindowManager: WindowManaging {
         }
 
         try setMinimized(false, for: targetWindow)
-        _ = app.activate(options: [.activateAllWindows])
-        try setBooleanAttribute(kAXMainAttribute as CFString, value: true, on: targetWindow)
-        try setBooleanAttribute(kAXFocusedAttribute as CFString, value: true, on: targetWindow)
-        try performAction(kAXRaiseAction as CFString, on: targetWindow)
+        try bringWindowToFront(targetWindow, for: app)
         return true
     }
 
@@ -192,11 +189,7 @@ struct WindowManager: WindowManaging {
         let nextIndex = windows.index(after: currentIndex)
         let targetWindow = nextIndex == windows.endIndex ? windows[windows.startIndex] : windows[nextIndex]
 
-        _ = app.activate(options: [.activateAllWindows])
-
-        try setBooleanAttribute(kAXMainAttribute as CFString, value: true, on: targetWindow)
-        try setBooleanAttribute(kAXFocusedAttribute as CFString, value: true, on: targetWindow)
-        try performAction(kAXRaiseAction as CFString, on: targetWindow)
+        try bringWindowToFront(targetWindow, for: app)
     }
 
     private func quitFrontmostApplication() throws {
@@ -211,6 +204,18 @@ struct WindowManager: WindowManaging {
         guard error == .success else {
             throw WindowManagerError.unableToPerformAction
         }
+    }
+
+    private func bringWindowToFront(_ window: AXUIElement, for app: NSRunningApplication) throws {
+        _ = app.activate(options: [.activateAllWindows])
+
+        // Restored windows can take a moment to become orderable, so raise twice
+        // around the focus attributes to make the behavior more reliable.
+        try? performAction(kAXRaiseAction as CFString, on: window)
+        try setBooleanAttribute(kAXMainAttribute as CFString, value: true, on: window)
+        try setBooleanAttribute(kAXFocusedAttribute as CFString, value: true, on: window)
+        try performAction(kAXRaiseAction as CFString, on: window)
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     private func setBooleanAttribute(_ attribute: CFString, value: Bool, on element: AXUIElement) throws {

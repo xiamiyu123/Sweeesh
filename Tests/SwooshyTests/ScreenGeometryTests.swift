@@ -45,4 +45,20 @@ struct ScreenGeometryTests {
         #expect(appKitFrame == CGRect(x: 1600, y: 150, width: 900, height: 700))
         #expect(geometry.axFrame(fromAppKitFrame: appKitFrame) == CGRect(x: 1600, y: 50, width: 900, height: 700))
     }
+
+    @Test
+    func convertsFramesRelativeToPrimaryScreenWhenDisplaySitsAboveMainScreen() {
+        let geometry = ScreenGeometry(
+            screenFrames: [
+                CGRect(x: 0, y: 0, width: 1440, height: 900),
+                CGRect(x: 80, y: 900, width: 1280, height: 800),
+            ]
+        )
+
+        let appKitFrame = CGRect(x: 120, y: 980, width: 900, height: 700)
+        let axFrame = geometry.axFrame(fromAppKitFrame: appKitFrame)
+
+        #expect(axFrame == CGRect(x: 120, y: -780, width: 900, height: 700))
+        #expect(geometry.appKitFrame(fromAXFrame: axFrame) == appKitFrame)
+    }
 }

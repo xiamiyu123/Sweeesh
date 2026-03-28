@@ -18,6 +18,18 @@ struct WindowManager: WindowManaging {
     private let cycleSessions = WindowCycleSessionStore()
 
     func perform(_ action: WindowAction, layoutEngine: WindowLayoutEngine) throws {
+        try perform(
+            action,
+            layoutEngine: layoutEngine,
+            preferredAppKitPoint: nil
+        )
+    }
+
+    func perform(
+        _ action: WindowAction,
+        layoutEngine: WindowLayoutEngine,
+        preferredAppKitPoint: CGPoint?
+    ) throws {
         DebugLog.info(DebugLog.windows, "Performing window action \(String(describing: action))")
         if action == .quitApplication {
             try quitFrontmostApplication()
@@ -71,20 +83,43 @@ struct WindowManager: WindowManaging {
         guard screens.isEmpty == false else {
             throw WindowManagerError.unableToResolveScreen
         }
+        logScreenConfiguration(screens, preferredAppKitPoint: preferredAppKitPoint)
         let screenGeometry = ScreenGeometry(screenFrames: screens.map(\.frame))
         let focusedWindow = try focusedWindowElement(in: appElement)
-        let currentFrame = screenGeometry.appKitFrame(
-            fromAXFrame: try frame(of: focusedWindow)
+        let currentAXFrame = try frame(of: focusedWindow)
+        let currentFrame = screenGeometry.appKitFrame(fromAXFrame: currentAXFrame)
+        logFrameRead(
+            for: focusedWindow,
+            action: action,
+            application: app,
+            axFrame: currentAXFrame,
+            appKitFrame: currentFrame
         )
         let screenFrames = screens.map(\.visibleFrame)
 
-        guard
-            let currentScreenFrame = layoutEngine.screenContainingMost(
-                of: currentFrame,
-                in: screenFrames
-            )
-        else {
+        let preferredScreenFrame = preferredAppKitPoint.flatMap { preferredPoint in
+            screenFrames.first { $0.contains(preferredPoint) }
+        }
+
+        let currentScreenFrame = preferredScreenFrame ?? layoutEngine.screenContainingMost(
+            of: currentFrame,
+            in: screenFrames
+        )
+
+        guard let currentScreenFrame else {
             throw WindowManagerError.unableToResolveScreen
+        }
+
+        DebugLog.debug(
+            DebugLog.windows,
+            "Resolved current visible frame for action \(String(describing: action)): \(NSStringFromRect(currentScreenFrame))"
+        )
+
+        if let preferredAppKitPoint, let preferredScreenFrame {
+            DebugLog.debug(
+                DebugLog.windows,
+                "Resolved target screen from preferred point \(NSStringFromPoint(preferredAppKitPoint)): \(NSStringFromRect(preferredScreenFrame))"
+            )
         }
 
         let targetFrame = layoutEngine.targetFrame(
@@ -98,10 +133,27 @@ struct WindowManager: WindowManaging {
             "Calculated target frame \(NSStringFromRect(targetFrame)) from current frame \(NSStringFromRect(currentFrame))"
         )
 
-        try setFrame(
-            screenGeometry.axFrame(fromAppKitFrame: targetFrame),
-            for: focusedWindow
+        let targetAXFrame = screenGeometry.axFrame(fromAppKitFrame: targetFrame)
+        DebugLog.debug(
+            DebugLog.windows,
+            "Writing target AX frame \(NSStringFromRect(targetAXFrame)) converted from AppKit target \(NSStringFromRect(targetFrame))"
         )
+
+        try setFrame(targetAXFrame, for: focusedWindow)
+
+        do {
+            let appliedAXFrame = try frame(of: focusedWindow)
+            let appliedAppKitFrame = screenGeometry.appKitFrame(fromAXFrame: appliedAXFrame)
+            DebugLog.debug(
+                DebugLog.windows,
+                "Read back window frame after \(String(describing: action)): AX \(NSStringFromRect(appliedAXFrame)), AppKit \(NSStringFromRect(appliedAppKitFrame))"
+            )
+        } catch {
+            DebugLog.error(
+                DebugLog.windows,
+                "Failed to read back window frame after \(String(describing: action)): \(error.localizedDescription)"
+            )
+        }
     }
 
     private func frontmostApplication() throws -> NSRunningApplication {
@@ -698,6 +750,11 @@ struct WindowManager: WindowManaging {
         var size = CGSize(width: max(1, frame.width), height: max(1, frame.height))
         var origin = CGPoint(x: frame.origin.x, y: frame.origin.y)
 
+        DebugLog.debug(
+            DebugLog.windows,
+            "Setting AX frame on window \(windowSummary([window])) to origin \(NSStringFromPoint(origin)) size \(NSStringFromSize(size))"
+        )
+
         guard let sizeValue = AXValueCreate(.cgSize, &size) else {
             throw WindowManagerError.unableToSetFrame
         }
@@ -712,10 +769,42 @@ struct WindowManager: WindowManaging {
         guard sizeError == .success, positionError == .success else {
             DebugLog.error(
                 DebugLog.accessibility,
-                "Failed to set frame. Size error = \(sizeError.rawValue), position error = \(positionError.rawValue)"
+                "Failed to set frame for window \(windowSummary([window])). Requested origin = \(NSStringFromPoint(origin)), size = \(NSStringFromSize(size)), size error = \(sizeError.rawValue), position error = \(positionError.rawValue)"
             )
             throw WindowManagerError.unableToSetFrame
         }
+    }
+
+    private func logScreenConfiguration(_ screens: [NSScreen], preferredAppKitPoint: CGPoint?) {
+        let screenSummary = screens.enumerated().map { index, screen in
+            let name = screen.localizedName
+            return "#\(index){name=\(name), frame=\(NSStringFromRect(screen.frame)), visible=\(NSStringFromRect(screen.visibleFrame))}"
+        }.joined(separator: ", ")
+
+        DebugLog.debug(
+            DebugLog.windows,
+            "Available screens: [\(screenSummary)]; preferred point = \(preferredAppKitPoint.map(NSStringFromPoint) ?? "nil")"
+        )
+    }
+
+    private func logFrameRead(
+        for window: AXUIElement,
+        action: WindowAction,
+        application: NSRunningApplication,
+        axFrame: CGRect,
+        appKitFrame: CGRect
+    ) {
+        let title = (try? stringAttribute(kAXTitleAttribute as CFString, from: window)) ?? "<untitled>"
+        let role = (try? stringAttribute(kAXRoleAttribute as CFString, from: window)) ?? "<unknown>"
+        let subrole = (try? stringAttribute(kAXSubroleAttribute as CFString, from: window)) ?? "<unknown>"
+        let isMain = (try? booleanAttribute(kAXMainAttribute as CFString, from: window)) ?? false
+        let isFocused = (try? booleanAttribute(kAXFocusedAttribute as CFString, from: window)) ?? false
+        let isMinimized = (try? booleanAttribute(kAXMinimizedAttribute as CFString, from: window)) ?? false
+
+        DebugLog.debug(
+            DebugLog.windows,
+            "Resolved geometry for action \(String(describing: action)) in app \(application.localizedName ?? "unknown") [\(application.bundleIdentifier ?? "unknown")]: title=\(title), role=\(role), subrole=\(subrole), main=\(isMain), focused=\(isFocused), minimized=\(isMinimized), AX frame=\(NSStringFromRect(axFrame)), AppKit frame=\(NSStringFromRect(appKitFrame))"
+        )
     }
 
     private func pointAttribute(_ attribute: CFString, from element: AXUIElement) throws -> CGPoint {

@@ -1,18 +1,16 @@
 import CoreGraphics
 
 struct ScreenGeometry {
-    private let desktopBounds: CGRect
+    private let primaryScreenMaxY: CGFloat
 
     init(screenFrames: [CGRect]) {
-        self.desktopBounds = screenFrames.reduce(into: .null) { partialResult, frame in
-            partialResult = partialResult.union(frame)
-        }
+        self.primaryScreenMaxY = screenFrames.first?.maxY ?? 0
     }
 
     func appKitFrame(fromAXFrame frame: CGRect) -> CGRect {
         CGRect(
             x: frame.origin.x,
-            y: desktopBounds.maxY - frame.origin.y - frame.height,
+            y: primaryScreenMaxY - frame.origin.y - frame.height,
             width: frame.width,
             height: frame.height
         ).integral
@@ -21,7 +19,7 @@ struct ScreenGeometry {
     func axFrame(fromAppKitFrame frame: CGRect) -> CGRect {
         CGRect(
             x: frame.origin.x,
-            y: desktopBounds.maxY - frame.maxY,
+            y: primaryScreenMaxY - frame.maxY,
             width: frame.width,
             height: frame.height
         ).integral

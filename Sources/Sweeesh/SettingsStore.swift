@@ -56,6 +56,15 @@ final class SettingsStore {
         }
     }
 
+    var dockGestureBindings: [DockGestureBinding] {
+        didSet {
+            guard oldValue != dockGestureBindings else { return }
+            persistDockGestureBindings()
+            DebugLog.debug(DebugLog.settings, "Persisted \(dockGestureBindings.count) Dock gesture bindings")
+            notifyDidChange()
+        }
+    }
+
     var preferredLanguages: [String] {
         languageOverride.preferredLanguages ?? Locale.preferredLanguages
     }
@@ -83,6 +92,7 @@ final class SettingsStore {
         }
         #endif
         self.hotKeyBindings = Self.decodeHotKeyBindings(from: userDefaults) ?? HotKeyBindings.defaults
+        self.dockGestureBindings = Self.decodeDockGestureBindings(from: userDefaults) ?? DockGestureBindings.defaults
     }
 
     func localized(_ key: String) -> String {
@@ -136,6 +146,31 @@ final class SettingsStore {
         hotKeyBindings = HotKeyBindings.defaults
     }
 
+    func dockGestureAction(for gesture: DockGestureKind) -> DockGestureAction {
+        DockGestureBindings.action(for: gesture, in: dockGestureBindings)
+    }
+
+    func updateDockGestureAction(_ action: DockGestureAction, for gesture: DockGestureKind) {
+        var newBindings = dockGestureBindings
+
+        if let index = newBindings.firstIndex(where: { $0.gesture == gesture }) {
+            if newBindings[index].action == action {
+                return
+            }
+            newBindings[index] = DockGestureBinding(gesture: gesture, action: action)
+        } else {
+            newBindings.append(DockGestureBinding(gesture: gesture, action: action))
+        }
+
+        dockGestureBindings = newBindings.sorted { lhs, rhs in
+            lhs.gesture.rawValue < rhs.gesture.rawValue
+        }
+    }
+
+    func resetDockGestureActionsToDefaults() {
+        dockGestureBindings = DockGestureBindings.defaults
+    }
+
     private func notifyDidChange() {
         NotificationCenter.default.post(name: .settingsDidChange, object: self)
     }
@@ -154,9 +189,20 @@ final class SettingsStore {
         }
     }
 
+    private func persistDockGestureBindings() {
+        if let data = try? JSONEncoder().encode(dockGestureBindings) {
+            userDefaults.set(data, forKey: Keys.dockGestureBindings)
+        }
+    }
+
     private static func decodeHotKeyBindings(from userDefaults: UserDefaults) -> [HotKeyBinding]? {
         guard let data = userDefaults.data(forKey: Keys.hotKeyBindings) else { return nil }
         return try? JSONDecoder().decode([HotKeyBinding].self, from: data)
+    }
+
+    private static func decodeDockGestureBindings(from userDefaults: UserDefaults) -> [DockGestureBinding]? {
+        guard let data = userDefaults.data(forKey: Keys.dockGestureBindings) else { return nil }
+        return try? JSONDecoder().decode([DockGestureBinding].self, from: data)
     }
 
     private enum Keys {
@@ -167,5 +213,6 @@ final class SettingsStore {
         static let debugLoggingEnabled = "settings.debugLoggingEnabled"
         #endif
         static let hotKeyBindings = "settings.hotKeyBindings"
+        static let dockGestureBindings = "settings.dockGestureBindings"
     }
 }

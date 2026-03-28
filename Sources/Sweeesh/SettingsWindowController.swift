@@ -15,7 +15,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         let hostingController = NSHostingController(rootView: rootView)
         let window = NSWindow(contentViewController: hostingController)
 
-        window.setContentSize(NSSize(width: 460, height: 340))
+        window.setContentSize(NSSize(width: 500, height: 430))
         window.styleMask = [.titled, .closable, .miniaturizable]
         window.isReleasedWhenClosed = false
         window.center()
@@ -74,17 +74,29 @@ private struct SettingsView: View {
                     isOn: $settingsStore.hotKeysEnabled
                 )
 
-                Toggle(
-                    settingsStore.localized("settings.dock_gestures.enabled"),
-                    isOn: $settingsStore.dockGesturesEnabled
-                )
-
                 #if DEBUG
                 Toggle(
                     settingsStore.localized("settings.debug_logging.enabled"),
                     isOn: $settingsStore.debugLoggingEnabled
                 )
                 #endif
+            }
+
+            Section(settingsStore.localized("settings.section.dock_gestures")) {
+                Toggle(
+                    settingsStore.localized("settings.dock_gestures.enabled"),
+                    isOn: $settingsStore.dockGesturesEnabled
+                )
+
+                ForEach(DockGestureKind.allCases) { gesture in
+                    DockGestureActionRow(settingsStore: settingsStore, gesture: gesture)
+                        .disabled(settingsStore.dockGesturesEnabled == false)
+                }
+
+                Button(settingsStore.localized("settings.dock_gestures.reset")) {
+                    settingsStore.resetDockGestureActionsToDefaults()
+                }
+                .disabled(settingsStore.dockGesturesEnabled == false)
             }
 
             Section(settingsStore.localized("settings.section.shortcuts")) {
@@ -99,7 +111,7 @@ private struct SettingsView: View {
         }
         .formStyle(.grouped)
         .padding(20)
-        .frame(minWidth: 420, minHeight: 320)
+        .frame(minWidth: 460, minHeight: 400)
     }
 
     private func title(for language: AppLanguage) -> String {
@@ -110,6 +122,32 @@ private struct SettingsView: View {
             return settingsStore.localized("settings.language.english")
         case .simplifiedChinese:
             return settingsStore.localized("settings.language.simplified_chinese")
+        }
+    }
+}
+
+private struct DockGestureActionRow: View {
+    @Bindable var settingsStore: SettingsStore
+    let gesture: DockGestureKind
+
+    var body: some View {
+        HStack {
+            Text(gesture.title(preferredLanguages: settingsStore.preferredLanguages))
+            Spacer()
+            Picker(
+                "",
+                selection: Binding(
+                    get: { settingsStore.dockGestureAction(for: gesture) },
+                    set: { settingsStore.updateDockGestureAction($0, for: gesture) }
+                )
+            ) {
+                ForEach(DockGestureAction.allCases) { action in
+                    Text(action.title(preferredLanguages: settingsStore.preferredLanguages)).tag(action)
+                }
+            }
+            .pickerStyle(.menu)
+            .labelsHidden()
+            .frame(width: 200)
         }
     }
 }

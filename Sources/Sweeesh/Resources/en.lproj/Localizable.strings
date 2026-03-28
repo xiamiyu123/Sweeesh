@@ -11,6 +11,7 @@
 "action.maximize" = "Maximize to Visible Frame";
 "action.center" = "Center Large Window";
 "action.minimize" = "Minimize to Dock";
+"action.restore_window" = "Restore Minimized Window";
 "action.close_window" = "Close Window";
 "action.quit_application" = "Quit Application";
 "action.cycle_same_app_windows" = "Cycle Same-App Windows";
@@ -23,6 +24,7 @@
 
 "settings.window.title" = "Settings";
 "settings.section.general" = "General";
+"settings.section.dock_gestures" = "Dock Gestures";
 "settings.section.shortcuts" = "Shortcuts";
 "settings.language.label" = "Language";
 "settings.language.system" = "Follow System";
@@ -30,6 +32,10 @@
 "settings.language.simplified_chinese" = "Simplified Chinese";
 "settings.hotkeys.enabled" = "Enable global hotkeys";
 "settings.dock_gestures.enabled" = "Enable experimental Dock gestures";
+"settings.dock_gestures.gesture.swipe_down" = "Two-finger swipe down";
+"settings.dock_gestures.gesture.swipe_up" = "Two-finger swipe up";
+"settings.dock_gestures.gesture.pinch_in" = "Two-finger pinch in";
+"settings.dock_gestures.reset" = "Reset gesture actions";
 "settings.debug_logging.enabled" = "Enable debug logging";
 "settings.shortcuts.recorder_placeholder" = "Press shortcut";
 "settings.shortcuts.reset" = "Reset shortcut defaults";
@@ -41,6 +47,6 @@
 "error.set_window_frame_failed" = "Unable to update the window frame. Some apps do not allow resizing or moving.";
 "error.resolve_screen_failed" = "Unable to match the focused window to a display.";
 "error.perform_action_failed" = "Unable to perform the selected window action.";
-"error.quit_application_failed" = "Unable to quit the frontmost application.";
+"error.quit_application_failed" = "Unable to quit the application.";
 "error.enumerate_windows_failed" = "Unable to inspect windows for the frontmost application.";
 "error.no_alternate_window" = "No alternate window was found for the current application.";

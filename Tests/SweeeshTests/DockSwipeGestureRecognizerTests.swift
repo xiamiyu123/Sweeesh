@@ -21,7 +21,7 @@ struct DockSwipeGestureRecognizerTests {
 
     @Test
     func downwardTwoFingerSwipeMinimizesHoveredApplication() {
-        var recognizer = DockSwipeGestureRecognizer()
+        var recognizer = DockGestureRecognizer()
         let finder = target(
             dockItemName: "Finder",
             processIdentifier: 100,
@@ -52,13 +52,13 @@ struct DockSwipeGestureRecognizerTests {
                     timestamp: 0.1
                 ),
                 hoveredApplication: finder
-            ) == .minimize(application: finder)
+            ) == .swipeDown(application: finder)
         )
     }
 
     @Test
     func upwardTwoFingerSwipeRestoresHoveredApplication() {
-        var recognizer = DockSwipeGestureRecognizer()
+        var recognizer = DockGestureRecognizer()
         let ghostty = target(
             dockItemName: "Ghostty",
             processIdentifier: 101,
@@ -87,13 +87,48 @@ struct DockSwipeGestureRecognizerTests {
                     timestamp: 0.1
                 ),
                 hoveredApplication: ghostty
-            ) == .restore(application: ghostty)
+            ) == .swipeUp(application: ghostty)
+        )
+    }
+
+    @Test
+    func inwardTwoFingerPinchProducesPinchGesture() {
+        var recognizer = DockGestureRecognizer()
+        let preview = target(
+            dockItemName: "Preview",
+            processIdentifier: 102,
+            bundleIdentifier: "com.apple.Preview",
+            aliases: ["Preview", "com.apple.Preview"]
+        )
+
+        _ = recognizer.process(
+            frame: TrackpadTouchFrame(
+                touches: [
+                    TrackpadTouchSample(identifier: 1, position: CGPoint(x: 0.2, y: 0.5)),
+                    TrackpadTouchSample(identifier: 2, position: CGPoint(x: 0.8, y: 0.5)),
+                ],
+                timestamp: 0
+            ),
+            hoveredApplication: preview
+        )
+
+        #expect(
+            recognizer.process(
+                frame: TrackpadTouchFrame(
+                    touches: [
+                        TrackpadTouchSample(identifier: 1, position: CGPoint(x: 0.36, y: 0.5)),
+                        TrackpadTouchSample(identifier: 2, position: CGPoint(x: 0.64, y: 0.5)),
+                    ],
+                    timestamp: 0.1
+                ),
+                hoveredApplication: preview
+            ) == .pinchIn(application: preview)
         )
     }
 
     @Test
     func gestureRequiresHoveredApplicationAtStart() {
-        var recognizer = DockSwipeGestureRecognizer()
+        var recognizer = DockGestureRecognizer()
 
         #expect(
             recognizer.process(

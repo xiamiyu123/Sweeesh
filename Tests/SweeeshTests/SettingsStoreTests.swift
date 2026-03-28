@@ -14,12 +14,14 @@ struct SettingsStoreTests {
         store.languageOverride = .simplifiedChinese
         store.hotKeysEnabled = false
         store.dockGesturesEnabled = false
+        store.updateDockGestureAction(.closeWindow, for: .pinchIn)
 
         let reloadedStore = SettingsStore(userDefaults: defaults)
 
         #expect(reloadedStore.languageOverride == .simplifiedChinese)
         #expect(reloadedStore.hotKeysEnabled == false)
         #expect(reloadedStore.dockGesturesEnabled == false)
+        #expect(reloadedStore.dockGestureAction(for: .pinchIn) == .closeWindow)
     }
 
     @Test
@@ -69,5 +71,15 @@ struct SettingsStoreTests {
 
         let store = SettingsStore(userDefaults: defaults)
         #expect(store.preferredLanguages.isEmpty == false)
+    }
+
+    @Test
+    func pinchGestureUsesQuitApplicationByDefault() {
+        let suiteName = "Sweeesh.SettingsStoreTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+
+        let store = SettingsStore(userDefaults: defaults)
+        #expect(store.dockGestureAction(for: .pinchIn) == .quitApplication)
     }
 }

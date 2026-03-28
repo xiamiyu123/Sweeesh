@@ -27,35 +27,55 @@ struct DockApplicationTarget: Equatable {
     }
 }
 
-enum DockSwipeEvent: Equatable {
-    case minimize(application: DockApplicationTarget)
-    case restore(application: DockApplicationTarget)
+enum DockGestureEvent: Equatable {
+    case swipeDown(application: DockApplicationTarget)
+    case swipeUp(application: DockApplicationTarget)
+    case pinchIn(application: DockApplicationTarget)
+
+    var gesture: DockGestureKind {
+        switch self {
+        case .swipeDown:
+            return .swipeDown
+        case .swipeUp:
+            return .swipeUp
+        case .pinchIn:
+            return .pinchIn
+        }
+    }
+
+    var application: DockApplicationTarget {
+        switch self {
+        case .swipeDown(let application), .swipeUp(let application), .pinchIn(let application):
+            return application
+        }
+    }
 }
 
-struct DockSwipeGestureRecognizer {
+struct DockGestureRecognizer {
     private struct Session: Equatable {
         let application: DockApplicationTarget
         let startAveragePoint: CGPoint
+        let startFingerDistance: CGFloat
         var hasTriggered = false
     }
 
     private let verticalThreshold: CGFloat = 0.09
     private let verticalBiasRatio: CGFloat = 1.35
+    private let pinchThreshold: CGFloat = 0.08
+    private let pinchBiasRatio: CGFloat = 1.15
     private var session: Session?
 
     mutating func process(
         frame: TrackpadTouchFrame,
         hoveredApplication: DockApplicationTarget?
-    ) -> DockSwipeEvent? {
+    ) -> DockGestureEvent? {
         guard frame.touches.count == 2 else {
             session = nil
             return nil
         }
 
-        let averagePoint = CGPoint(
-            x: frame.touches.map(\.position.x).reduce(0, +) / 2,
-            y: frame.touches.map(\.position.y).reduce(0, +) / 2
-        )
+        let averagePoint = averagePoint(for: frame.touches)
+        let currentFingerDistance = fingerDistance(for: frame.touches)
 
         guard let session else {
             guard let hoveredApplication else {
@@ -64,7 +84,8 @@ struct DockSwipeGestureRecognizer {
 
             self.session = Session(
                 application: hoveredApplication,
-                startAveragePoint: averagePoint
+                startAveragePoint: averagePoint,
+                startFingerDistance: currentFingerDistance
             )
             return nil
         }
@@ -75,6 +96,16 @@ struct DockSwipeGestureRecognizer {
 
         let deltaX = averagePoint.x - session.startAveragePoint.x
         let deltaY = averagePoint.y - session.startAveragePoint.y
+        let translationMagnitude = hypot(deltaX, deltaY)
+        let fingerDistanceDelta = currentFingerDistance - session.startFingerDistance
+
+        if
+            fingerDistanceDelta <= -pinchThreshold,
+            abs(fingerDistanceDelta) >= translationMagnitude * pinchBiasRatio
+        {
+            self.session?.hasTriggered = true
+            return .pinchIn(application: session.application)
+        }
 
         guard abs(deltaY) >= verticalThreshold else {
             return nil
@@ -87,9 +118,31 @@ struct DockSwipeGestureRecognizer {
         self.session?.hasTriggered = true
 
         if deltaY < 0 {
-            return .minimize(application: session.application)
+            return .swipeDown(application: session.application)
         }
 
-        return .restore(application: session.application)
+        return .swipeUp(application: session.application)
+    }
+
+    private func averagePoint(for touches: [TrackpadTouchSample]) -> CGPoint {
+        CGPoint(
+            x: touches.map(\.position.x).reduce(0, +) / CGFloat(touches.count),
+            y: touches.map(\.position.y).reduce(0, +) / CGFloat(touches.count)
+        )
+    }
+
+    private func fingerDistance(for touches: [TrackpadTouchSample]) -> CGFloat {
+        guard touches.count == 2 else {
+            return 0
+        }
+
+        let first = touches[0].position
+        let second = touches[1].position
+        let dx = second.x - first.x
+        let dy = second.y - first.y
+        return hypot(dx, dy)
     }
 }
+
+typealias DockSwipeGestureRecognizer = DockGestureRecognizer
+typealias DockSwipeEvent = DockGestureEvent

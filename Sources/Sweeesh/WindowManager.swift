@@ -136,6 +136,45 @@ struct WindowManager: WindowManaging {
         return true
     }
 
+    func closeVisibleWindow(of application: DockApplicationTarget) throws -> Bool {
+        guard AXIsProcessTrusted() else {
+            throw WindowManagerError.accessibilityPermissionMissing
+        }
+
+        DebugLog.info(DebugLog.windows, "Attempting to close a visible window for \(application.logDescription)")
+
+        let app = try runningApplication(matching: application)
+        let appElement = AXUIElementCreateApplication(app.processIdentifier)
+        let windows = try windowElements(in: appElement).filter { !isMinimized($0) }
+        DebugLog.debug(
+            DebugLog.windows,
+            "Close-window candidates for \(application.logDescription): [\(windowSummary(windows))]"
+        )
+
+        guard let targetWindow = windows.first else {
+            DebugLog.debug(DebugLog.windows, "No visible window found to close for \(application.logDescription)")
+            return false
+        }
+
+        try performAction("AXClose" as CFString, on: targetWindow)
+        DebugLog.info(DebugLog.windows, "Closed one visible window for \(application.logDescription)")
+        return true
+    }
+
+    func quitApplication(matching target: DockApplicationTarget) throws -> Bool {
+        guard AXIsProcessTrusted() else {
+            throw WindowManagerError.accessibilityPermissionMissing
+        }
+
+        let app = try runningApplication(matching: target)
+        guard app.terminate() else {
+            throw WindowManagerError.unableToQuitApplication
+        }
+
+        DebugLog.info(DebugLog.windows, "Terminated app for Dock target \(target.logDescription)")
+        return true
+    }
+
     private func runningApplication(matching target: DockApplicationTarget) throws -> NSRunningApplication {
         var windowPresenceCache: [pid_t: Bool] = [:]
         var fallbackCandidates: [NSRunningApplication] = []

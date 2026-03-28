@@ -11,7 +11,7 @@ to move and resize the focused window.
 - Accessibility permission prompt and refresh flow
 - Built-in English and Simplified Chinese localization
 - Global hotkeys for all core window actions
-- Settings window for language override, hotkey enable/disable, and per-action shortcut recording
+- Settings window for language override, hotkey enable/disable, per-action shortcut recording, and per-gesture Dock action mapping
 - Experimental Dock gestures backed by private multitouch input
 - Focused-window actions:
   - snap left half
@@ -45,6 +45,8 @@ core behavior is stable and useful.
 - Hover an application icon in the Dock
 - Swipe down with two fingers on the trackpad to minimize one visible window for that app
 - Swipe up with two fingers on the trackpad to restore one minimized window for that app
+- Pinch in with two fingers on the trackpad to quit that app (default mapping)
+- Every Dock gesture action can be customized in `Settings…`
 - This path depends on private multitouch APIs and should be treated as experimental
 
 ## Debug Logging

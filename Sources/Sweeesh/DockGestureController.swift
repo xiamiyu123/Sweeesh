@@ -10,7 +10,7 @@ final class DockGestureController {
     private let settingsStore: SettingsStore
     private let dockProbe = DockAccessibilityProbe()
     private let monitor = MultitouchInputMonitor()
-    private var recognizer = DockSwipeGestureRecognizer()
+    private var recognizer = DockGestureRecognizer()
     private var hasShownPermissionHint = false
     private var settingsObserver: NSObjectProtocol?
     private var lastFrameLogAt = Date.distantPast
@@ -61,12 +61,18 @@ final class DockGestureController {
     private func handle(frame: TrackpadTouchFrame) {
         guard settingsStore.dockGesturesEnabled else { return }
 
+        // Keep the hot path cheap: only two-finger input can produce Dock gestures.
+        guard frame.touches.count == 2 else {
+            _ = recognizer.process(frame: frame, hoveredApplication: nil)
+            return
+        }
+
         let mouseLocation = NSEvent.mouseLocation
-        let touchSummary = frame.touches
-            .map { "#\($0.identifier)=\(NSStringFromPoint($0.position))" }
-            .joined(separator: ", ")
         let hoveredApplication = dockProbe.hoveredApplication(at: mouseLocation)
         if shouldLogFrame(touchCount: frame.touches.count, hoveredApplication: hoveredApplication) {
+            let touchSummary = frame.touches
+                .map { "#\($0.identifier)=\(NSStringFromPoint($0.position))" }
+                .joined(separator: ", ")
             DebugLog.debug(
                 DebugLog.dock,
                 "Received touch frame with \(frame.touches.count) touches at mouse \(NSStringFromPoint(mouseLocation)); hovered application = \(hoveredApplication?.logDescription ?? "nil"); touches = [\(touchSummary)]"
@@ -77,13 +83,22 @@ final class DockGestureController {
         }
 
         do {
-            switch event {
-            case .minimize(let application):
-                DebugLog.info(DebugLog.dock, "Dock swipe minimize for \(application.logDescription)")
+            let action = settingsStore.dockGestureAction(for: event.gesture)
+            let application = event.application
+            DebugLog.info(
+                DebugLog.dock,
+                "Dock gesture \(event.gesture.rawValue) mapped to \(action.rawValue) for \(application.logDescription)"
+            )
+
+            switch action {
+            case .minimizeWindow:
                 _ = try windowManager.minimizeVisibleWindow(of: application)
-            case .restore(let application):
-                DebugLog.info(DebugLog.dock, "Dock swipe restore for \(application.logDescription)")
+            case .restoreWindow:
                 _ = try windowManager.restoreMinimizedWindow(of: application)
+            case .closeWindow:
+                _ = try windowManager.closeVisibleWindow(of: application)
+            case .quitApplication:
+                _ = try windowManager.quitApplication(matching: application)
             }
         } catch let error as WindowManagerError {
             handleWindowManagerError(error)

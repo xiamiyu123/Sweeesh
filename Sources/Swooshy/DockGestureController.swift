@@ -233,7 +233,7 @@ private final class DockAccessibilityProbe {
             let appKitFrame = geometry.appKitFrame(
                 fromAXFrame: CGRect(origin: axPosition, size: axSize)
             )
-            let aliases = applicationAliases(for: matchedApplication)
+            let aliases = RunningApplicationIdentity.aliases(for: matchedApplication)
             let target = DockApplicationTarget(
                 dockItemName: itemName,
                 resolvedApplicationName: matchedApplication.localizedName ?? itemName,
@@ -270,6 +270,10 @@ private final class DockAccessibilityProbe {
         aliasCache: inout [pid_t: [String]]
     ) -> NSRunningApplication? {
         let scoredMatches = NSWorkspace.shared.runningApplications.compactMap { application -> (NSRunningApplication, Int, Int)? in
+            guard application.isTerminated == false else {
+                return nil
+            }
+
             let aliasScore = appMatchScore(
                 forDockItemNamed: dockItemName,
                 aliases: cachedApplicationAliases(for: application, aliasCache: &aliasCache)
@@ -306,7 +310,7 @@ private final class DockAccessibilityProbe {
             return aliases
         }
 
-        let aliases = applicationAliases(for: application)
+        let aliases = RunningApplicationIdentity.aliases(for: application)
         aliasCache[application.processIdentifier] = aliases
         return aliases
     }
@@ -346,7 +350,7 @@ private final class DockAccessibilityProbe {
             score += 20
         }
 
-        if isLikelyHelperProcess(application) {
+        if RunningApplicationIdentity.isLikelyHelperProcess(application) {
             score -= 220
         }
 
@@ -363,26 +367,6 @@ private final class DockAccessibilityProbe {
         }
 
         return windows.isEmpty == false
-    }
-
-    private func isLikelyHelperProcess(_ application: NSRunningApplication) -> Bool {
-        let localizedName = (application.localizedName ?? "").lowercased()
-        let bundleIdentifier = (application.bundleIdentifier ?? "").lowercased()
-        let bundlePath = (application.bundleURL?.path ?? "").lowercased()
-
-        if localizedName.contains("helper") || localizedName.contains("notification service") {
-            return true
-        }
-
-        if bundleIdentifier.contains(".framework.") || bundleIdentifier.contains(".helper") {
-            return true
-        }
-
-        if bundlePath.contains("/frameworks/") || bundlePath.contains("/helpers/") || bundlePath.contains(".appex/") {
-            return true
-        }
-
-        return false
     }
 
     private func logProbeIfNeeded(key: String, message: String) {
@@ -408,50 +392,15 @@ private final class DockAccessibilityProbe {
         }
     }
 
-    private func applicationAliases(for application: NSRunningApplication) -> [String] {
-        var aliases: Set<String> = []
-
-        if let localizedName = application.localizedName, localizedName.isEmpty == false {
-            aliases.insert(localizedName)
-        }
-
-        if let bundleIdentifier = application.bundleIdentifier, bundleIdentifier.isEmpty == false {
-            aliases.insert(bundleIdentifier)
-        }
-
-        if let bundleURL = application.bundleURL {
-            aliases.insert(bundleURL.deletingPathExtension().lastPathComponent)
-
-            if
-                let bundle = Bundle(url: bundleURL),
-                let info = bundle.infoDictionary
-            {
-                let keys = [
-                    "CFBundleDisplayName",
-                    "CFBundleName",
-                    "CFBundleExecutable",
-                ]
-
-                for key in keys {
-                    if let value = info[key] as? String, value.isEmpty == false {
-                        aliases.insert(value)
-                    }
-                }
-            }
-        }
-
-        return Array(aliases)
-    }
-
     private func appMatchScore(forDockItemNamed dockItemName: String, aliases: [String]) -> Int {
-        let normalizedDockName = normalizedAlias(dockItemName)
+        let normalizedDockName = RunningApplicationIdentity.normalizedAlias(dockItemName)
         guard normalizedDockName.isEmpty == false else {
             return 0
         }
 
         var bestScore = 0
         for alias in aliases {
-            let normalizedAlias = normalizedAlias(alias)
+            let normalizedAlias = RunningApplicationIdentity.normalizedAlias(alias)
             guard normalizedAlias.isEmpty == false else {
                 continue
             }
@@ -464,15 +413,6 @@ private final class DockAccessibilityProbe {
         }
 
         return bestScore
-    }
-
-    private func normalizedAlias(_ value: String) -> String {
-        let folded = value.folding(
-            options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive],
-            locale: .current
-        )
-        let scalars = folded.unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) }
-        return String(String.UnicodeScalarView(scalars))
     }
 
     private func childElements(attribute: CFString, from element: AXUIElement) -> [AXUIElement] {

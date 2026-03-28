@@ -84,8 +84,10 @@ struct DockGestureRecognizer {
             return nil
         }
 
-        let averagePoint = averagePoint(for: frame.touches)
-        let currentFingerDistance = fingerDistance(for: frame.touches)
+        let firstTouchPoint = frame.touches[0].position
+        let secondTouchPoint = frame.touches[1].position
+        let averagePoint = midpoint(firstTouchPoint, secondTouchPoint)
+        let currentFingerDistance = distance(firstTouchPoint, secondTouchPoint)
 
         guard let session else {
             guard let hoveredApplication else {
@@ -147,40 +149,14 @@ struct DockGestureRecognizer {
         return .swipeRight(application: session.application)
     }
 
-    private func averagePoint(for touches: [TrackpadTouchSample]) -> CGPoint {
-        guard let firstTouch = touches.first else {
-            return .zero
-        }
-
-        if touches.count == 2 {
-            let secondTouch = touches[1]
-            return CGPoint(
-                x: (firstTouch.position.x + secondTouch.position.x) / 2,
-                y: (firstTouch.position.y + secondTouch.position.y) / 2
-            )
-        }
-
-        var totalX = firstTouch.position.x
-        var totalY = firstTouch.position.y
-
-        for touch in touches.dropFirst() {
-            totalX += touch.position.x
-            totalY += touch.position.y
-        }
-
-        return CGPoint(
-            x: totalX / CGFloat(touches.count),
-            y: totalY / CGFloat(touches.count)
+    private func midpoint(_ first: CGPoint, _ second: CGPoint) -> CGPoint {
+        CGPoint(
+            x: (first.x + second.x) / 2,
+            y: (first.y + second.y) / 2
         )
     }
 
-    private func fingerDistance(for touches: [TrackpadTouchSample]) -> CGFloat {
-        guard touches.count == 2 else {
-            return 0
-        }
-
-        let first = touches[0].position
-        let second = touches[1].position
+    private func distance(_ first: CGPoint, _ second: CGPoint) -> CGFloat {
         let dx = second.x - first.x
         let dy = second.y - first.y
         return hypot(dx, dy)

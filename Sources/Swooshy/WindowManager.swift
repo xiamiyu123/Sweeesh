@@ -276,9 +276,17 @@ struct WindowManager: WindowManaging {
             }
         }
 
-        let targetAliases = normalizedAliases(from: target.aliases + [target.dockItemName, target.resolvedApplicationName])
+        let targetAliases = RunningApplicationIdentity.normalizedAliases(
+            from: target.aliases + [target.dockItemName, target.resolvedApplicationName]
+        )
         let aliasCandidates = NSWorkspace.shared.runningApplications.filter { application in
-            let aliases = normalizedAliases(from: Array(applicationAliases(for: application)))
+            guard application.isTerminated == false else {
+                return false
+            }
+
+            let aliases = RunningApplicationIdentity.normalizedAliases(
+                from: RunningApplicationIdentity.aliases(for: application)
+            )
             return aliases.isDisjoint(with: targetAliases) == false
         }
 
@@ -331,7 +339,12 @@ struct WindowManager: WindowManaging {
         windowPresenceCache: inout [pid_t: Bool],
         allowHelperWithoutWindows: Bool = false
     ) -> NSRunningApplication? {
-        candidates.max { lhs, rhs in
+        let uniqueCandidates = Dictionary(
+            candidates.map { ($0.processIdentifier, $0) },
+            uniquingKeysWith: { current, _ in current }
+        ).values
+
+        return uniqueCandidates.max { lhs, rhs in
             let lhsScore = windowTargetQualityScore(
                 for: lhs,
                 windowPresenceCache: &windowPresenceCache,
@@ -378,7 +391,7 @@ struct WindowManager: WindowManaging {
             score += 20
         }
 
-        if isLikelyHelperProcess(application) {
+        if RunningApplicationIdentity.isLikelyHelperProcess(application) {
             score -= allowHelperWithoutWindows ? 80 : 220
             if hasWindow == false {
                 score -= allowHelperWithoutWindows ? 30 : 300
@@ -392,7 +405,7 @@ struct WindowManager: WindowManaging {
         _ application: NSRunningApplication,
         windowPresenceCache: inout [pid_t: Bool]
     ) -> Bool {
-        if isLikelyHelperProcess(application) {
+        if RunningApplicationIdentity.isLikelyHelperProcess(application) {
             return hasAnyWindow(for: application, windowPresenceCache: &windowPresenceCache)
         }
 
@@ -414,78 +427,6 @@ struct WindowManager: WindowManaging {
         let hasWindow = (error == .success) && ((value as? [AnyObject])?.isEmpty == false)
         windowPresenceCache[application.processIdentifier] = hasWindow
         return hasWindow
-    }
-
-    private func isLikelyHelperProcess(_ application: NSRunningApplication) -> Bool {
-        let localizedName = (application.localizedName ?? "").lowercased()
-        let bundleIdentifier = (application.bundleIdentifier ?? "").lowercased()
-        let bundlePath = (application.bundleURL?.path ?? "").lowercased()
-
-        if localizedName.contains("helper") || localizedName.contains("notification service") {
-            return true
-        }
-
-        if bundleIdentifier.contains(".framework.") || bundleIdentifier.contains(".helper") {
-            return true
-        }
-
-        if bundlePath.contains("/frameworks/") || bundlePath.contains("/helpers/") || bundlePath.contains(".appex/") {
-            return true
-        }
-
-        return false
-    }
-
-    private func applicationAliases(for application: NSRunningApplication) -> Set<String> {
-        var aliases: Set<String> = []
-
-        if let localizedName = application.localizedName, localizedName.isEmpty == false {
-            aliases.insert(localizedName)
-        }
-
-        if let bundleIdentifier = application.bundleIdentifier, bundleIdentifier.isEmpty == false {
-            aliases.insert(bundleIdentifier)
-        }
-
-        if let bundleURL = application.bundleURL {
-            aliases.insert(bundleURL.deletingPathExtension().lastPathComponent)
-
-            if
-                let bundle = Bundle(url: bundleURL),
-                let info = bundle.infoDictionary
-            {
-                let keys = [
-                    "CFBundleDisplayName",
-                    "CFBundleName",
-                    "CFBundleExecutable",
-                ]
-
-                for key in keys {
-                    if let value = info[key] as? String, value.isEmpty == false {
-                        aliases.insert(value)
-                    }
-                }
-            }
-        }
-
-        return aliases
-    }
-
-    private func normalizedAliases(from aliases: [String]) -> Set<String> {
-        Set(
-            aliases
-                .map(normalizedAlias)
-                .filter { $0.isEmpty == false }
-        )
-    }
-
-    private func normalizedAlias(_ value: String) -> String {
-        let folded = value.folding(
-            options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive],
-            locale: .current
-        )
-        let scalars = folded.unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) }
-        return String(String.UnicodeScalarView(scalars))
     }
 
     private func focusedWindowElement(in appElement: AXUIElement) throws -> AXUIElement {
@@ -566,15 +507,9 @@ struct WindowManager: WindowManaging {
         _ window: AXUIElement,
         owningApp: NSRunningApplication
     ) throws -> Bool {
-        _ = owningApp.activate(options: [.activateAllWindows])
-        try? performAction(kAXRaiseAction as CFString, on: window)
-        try? setBooleanAttribute(kAXMainAttribute as CFString, value: true, on: window)
-        try? setBooleanAttribute(kAXFocusedAttribute as CFString, value: true, on: window)
+        prepareWindowForClosing(window, owningApp: owningApp)
 
-        if
-            let closeButton = try? childElement(attribute: kAXCloseButtonAttribute as CFString, from: window),
-            tryPerformAction(kAXPressAction as CFString, on: closeButton, context: "AXCloseButton")
-        {
+        if tryCloseViaCloseButton(window, context: "AXCloseButton") {
             DebugLog.debug(DebugLog.windows, "Closed window via AXCloseButton: \(windowSummary([window]))")
             return true
         }
@@ -585,16 +520,31 @@ struct WindowManager: WindowManaging {
         }
 
         // Some apps expose only Press on the close control but not AXClose on the window node.
-        if
-            let closeButton = try? childElement(attribute: kAXCloseButtonAttribute as CFString, from: window),
-            tryPerformAction(kAXPressAction as CFString, on: closeButton, context: "AXCloseButtonRetry")
-        {
+        if tryCloseViaCloseButton(window, context: "AXCloseButtonRetry") {
             DebugLog.debug(DebugLog.windows, "Closed window via AXCloseButton retry: \(windowSummary([window]))")
             return true
         }
 
         DebugLog.debug(DebugLog.windows, "Unable to close window via AXCloseButton/AXClose: \(windowSummary([window]))")
         return false
+    }
+
+    private func prepareWindowForClosing(
+        _ window: AXUIElement,
+        owningApp: NSRunningApplication
+    ) {
+        _ = owningApp.activate(options: [.activateAllWindows])
+        try? performAction(kAXRaiseAction as CFString, on: window)
+        try? setBooleanAttribute(kAXMainAttribute as CFString, value: true, on: window)
+        try? setBooleanAttribute(kAXFocusedAttribute as CFString, value: true, on: window)
+    }
+
+    private func tryCloseViaCloseButton(_ window: AXUIElement, context: String) -> Bool {
+        guard let closeButton = try? childElement(attribute: kAXCloseButtonAttribute as CFString, from: window) else {
+            return false
+        }
+
+        return tryPerformAction(kAXPressAction as CFString, on: closeButton, context: context)
     }
 
     private func tryPerformAction(

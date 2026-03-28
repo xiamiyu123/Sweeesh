@@ -29,6 +29,9 @@ jobs:
   publish:
     name: Build And Publish Release
     runs-on: macos-latest
+    env:
+      HOMEBREW_TAP_REPO: git@github.com:xiamiyu123/homebrew-swooshy.git
+      HOMEBREW_TAP_BRANCH: main
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -82,3 +85,42 @@ jobs:
           prerelease: ${{ inputs.prerelease }}
           generate_release_notes: true
           files: dist/${{ steps.meta.outputs.asset_name }}
+
+      - name: Prepare Homebrew Tap SSH
+        if: ${{ !inputs.draft && !inputs.prerelease }}
+        env:
+          HOMEBREW_TAP_SSH_KEY: ${{ secrets.HOMEBREW_TAP_SSH_KEY }}
+        run: |
+          install -d -m 700 ~/.ssh
+          printf '%s\n' "$HOMEBREW_TAP_SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+
+      - name: Publish Homebrew Cask
+        if: ${{ !inputs.draft && !inputs.prerelease }}
+        run: |
+          TAP_DIR="$RUNNER_TEMP/homebrew-swooshy"
+          VERSION="${{ inputs.tag }}"
+          VERSION="${VERSION#v}"
+          ASSET_NAME="${{ steps.meta.outputs.asset_name }}"
+          ASSET_URL="https://github.com/${{ github.repository }}/releases/download/${{ inputs.tag }}/${ASSET_NAME}"
+          ASSET_SHA="$(shasum -a 256 "dist/${ASSET_NAME}" | awk '{print $1}')"
+
+          git clone --branch "$HOMEBREW_TAP_BRANCH" "$HOMEBREW_TAP_REPO" "$TAP_DIR"
+          ./scripts/render-homebrew-cask.sh \
+            "$VERSION" \
+            "$ASSET_URL" \
+            "$ASSET_SHA" \
+            "$TAP_DIR/Casks/swooshy.rb"
+
+          git -C "$TAP_DIR" config user.name "github-actions[bot]"
+          git -C "$TAP_DIR" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C "$TAP_DIR" add Casks/swooshy.rb
+
+          if git -C "$TAP_DIR" diff --cached --quiet; then
+            echo "Homebrew tap already up to date"
+            exit 0
+          fi
+
+          git -C "$TAP_DIR" commit -m "swooshy ${VERSION}"
+          git -C "$TAP_DIR" push origin "$HOMEBREW_TAP_BRANCH"

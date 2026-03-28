@@ -1,0 +1,79 @@
+name: Release (Manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag (for example v0.1.0)
+        required: true
+        type: string
+      release_name:
+        description: Optional release title (defaults to Swooshy <tag>)
+        required: false
+        type: string
+      prerelease:
+        description: Mark release as pre-release
+        required: false
+        default: false
+        type: boolean
+      draft:
+        description: Create release as draft
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    name: Build And Publish Release
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Swift Version
+        run: swift --version
+
+      - name: Run Unit Tests
+        run: swift test --parallel
+
+      - name: Resolve Release Metadata
+        id: meta
+        run: |
+          if [[ -n "${{ inputs.release_name }}" ]]; then
+            echo "release_name=${{ inputs.release_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "release_name=Swooshy ${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          fi
+          echo "asset_name=Swooshy-macOS-${{ inputs.tag }}.zip" >> "$GITHUB_OUTPUT"
+
+      - name: Build Release Asset
+        run: |
+          TAG="${{ inputs.tag }}"
+          VERSION="${TAG#v}"
+          APP_VERSION="$VERSION" ZIP_NAME="${{ steps.meta.outputs.asset_name }}" ./scripts/package-macos-app.sh
+
+      - name: Ensure Tag Exists
+        run: |
+          TAG="${{ inputs.tag }}"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists"
+          else
+            echo "Creating tag $TAG"
+            git tag "$TAG"
+            git push origin "$TAG"
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag }}
+          name: ${{ steps.meta.outputs.release_name }}
+          draft: ${{ inputs.draft }}
+          prerelease: ${{ inputs.prerelease }}
+          generate_release_notes: true
+          files: dist/${{ steps.meta.outputs.asset_name }}

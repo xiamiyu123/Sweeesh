@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Swift Tests
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Swift Version
+        run: swift --version
+
+      - name: Run Unit Tests
+        run: swift test --parallel
+
+  package:
+    name: Package macOS App
+    runs-on: macos-latest
+    needs: test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build App Bundle And Zip
+        run: ./scripts/package-macos-app.sh
+
+      - name: Upload Packaging Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Swooshy-macOS
+          path: |
+            dist/Swooshy.app
+            dist/Swooshy-macOS.zip
+          if-no-files-found: error
+          retention-days: 14

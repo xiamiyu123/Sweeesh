@@ -40,6 +40,12 @@ core behavior is stable and useful.
 5. Open `Settings…` from the menu bar menu to change language and customize shortcuts.
 6. Experimental Dock gestures can be toggled in `Settings…`.
 
+## Local Packaging
+
+- Build a local `.app` bundle and zip archive with:
+  - `./scripts/package-macos-app.sh`
+- Detailed instructions: `docs/local-packaging.md`
+
 ## Experimental Dock Gestures
 
 - Hover an application icon in the Dock

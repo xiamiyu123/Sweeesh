@@ -64,6 +64,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 
 private struct SettingsView: View {
     @Bindable var settingsStore: SettingsStore
+    @State private var launchAtLoginController = LaunchAtLoginController()
 
     var body: some View {
         Form {
@@ -81,6 +82,14 @@ private struct SettingsView: View {
                 Toggle(
                     settingsStore.localized("settings.hotkeys.enabled"),
                     isOn: $settingsStore.hotKeysEnabled
+                )
+
+                Toggle(
+                    settingsStore.localized("settings.launch_at_login.enabled"),
+                    isOn: Binding(
+                        get: { launchAtLoginController.isEnabled },
+                        set: { launchAtLoginController.setEnabled($0, localize: settingsStore.localized) }
+                    )
                 )
 
                 Picker(
@@ -102,11 +111,25 @@ private struct SettingsView: View {
             } header: {
                 Text(settingsStore.localized("settings.section.general"))
             } footer: {
-                let footerText = settingsStore.localized("settings.status_item_icon.footer")
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                VStack(alignment: .leading, spacing: 6) {
+                    let footerText = settingsStore.localized("settings.launch_at_login.footer")
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
 
-                if footerText.isEmpty == false {
-                    Text(footerText)
+                    if footerText.isEmpty == false {
+                        Text(footerText)
+                    }
+
+                    let iconFooterText = settingsStore.localized("settings.status_item_icon.footer")
+                        .trimmingCharacters(in: .whitespacesAndNewlines)
+
+                    if iconFooterText.isEmpty == false {
+                        Text(iconFooterText)
+                    }
+
+                    if let statusMessage = launchAtLoginController.statusMessage,
+                       statusMessage.isEmpty == false {
+                        Text(statusMessage)
+                    }
                 }
             }
 
@@ -181,6 +204,9 @@ private struct SettingsView: View {
         .formStyle(.grouped)
         .padding(20)
         .frame(minWidth: 500, minHeight: 520)
+        .onAppear {
+            launchAtLoginController.refresh(localize: settingsStore.localized)
+        }
     }
 
     private func title(for language: AppLanguage) -> String {

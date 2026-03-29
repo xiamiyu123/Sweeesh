@@ -88,6 +88,10 @@
 "settings.language.english" = "English";
 "settings.language.simplified_chinese" = "Simplified Chinese";
 "settings.hotkeys.enabled" = "Enable global hotkeys";
+"settings.launch_at_login.enabled" = "Launch at login";
+"settings.launch_at_login.footer" = "When enabled, Swooshy will start automatically after you sign in to macOS.";
+"settings.launch_at_login.requires_approval" = "macOS still needs approval for this login item in System Settings.";
+"settings.launch_at_login.error" = "Unable to update launch-at-login. Make sure the app is in Applications and try again.";
 "settings.status_item_icon.label" = "Menu bar icon";
 "settings.status_item_icon.footer" = "";
 "settings.status_item_icon.swooshy" = "Swooshy";

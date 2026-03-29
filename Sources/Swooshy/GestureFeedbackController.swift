@@ -21,6 +21,7 @@ final class GestureFeedbackController: GestureFeedbackPresenting {
     private let glyphView = GestureGlyphView(frame: .zero)
     private let glyphBadgeView = NSView(frame: .zero)
     private var dismissTask: Task<Void, Never>?
+    private var hideGeneration: UInt64 = 0
     private var currentStyle: GestureHUDStyle?
     private var currentPanelSize = NSSize(width: 208, height: 42)
 
@@ -69,23 +70,21 @@ final class GestureFeedbackController: GestureFeedbackPresenting {
         let anchorPoint = anchor ?? NSEvent.mouseLocation
         panel.setFrame(frame(for: anchorPoint), display: false)
 
+        hideGeneration &+= 1
         dismissTask?.cancel()
         panel.orderFrontRegardless()
 
-        NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.12
-            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-            panel.animator().alphaValue = 1
-        }
+        panel.animator().alphaValue = 1
 
         let delay = self.dismissalDelay
+        let generation = hideGeneration
 
         dismissTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: delay)
             guard !Task.isCancelled else { return }
 
             await MainActor.run {
-                self?.hide()
+                self?.hide(expectedGeneration: generation)
             }
         }
     }
@@ -224,7 +223,9 @@ final class GestureFeedbackController: GestureFeedbackPresenting {
         return NSRect(x: clampedX, y: clampedY, width: width, height: height)
     }
 
-    private func hide() {
+    private func hide(expectedGeneration: UInt64) {
+        guard expectedGeneration == hideGeneration else { return }
+
         dismissTask?.cancel()
         dismissTask = nil
 
@@ -234,6 +235,7 @@ final class GestureFeedbackController: GestureFeedbackPresenting {
             panel.animator().alphaValue = 0
         } completionHandler: {
             Task { @MainActor in
+                guard expectedGeneration == self.hideGeneration else { return }
                 self.panel.orderOut(nil)
             }
         }

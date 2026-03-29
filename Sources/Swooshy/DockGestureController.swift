@@ -20,6 +20,8 @@ final class DockGestureController {
     private var lastFrameLogAt = Date.distantPast
     private var lastLoggedTouchCount = -1
     private var lastLoggedHover: String?
+    private var pendingTouchFrame: TrackpadTouchFrame?
+    private var isProcessingTouchFrame = false
 
     init(
         windowManager: WindowManager,
@@ -35,9 +37,7 @@ final class DockGestureController {
         self.settingsStore = settingsStore
 
         monitor.onFrame = { [weak self] frame in
-            Task { @MainActor in
-                self?.handle(frame: frame)
-            }
+            self?.enqueue(frame: frame)
         }
 
         observeSettings()
@@ -68,6 +68,8 @@ final class DockGestureController {
     private func syncMonitoring() {
         dockRecognizer = DockGestureRecognizer()
         titleBarRecognizer = DockGestureRecognizer()
+        pendingTouchFrame = nil
+        isProcessingTouchFrame = false
 
         if settingsStore.dockGesturesEnabled || settingsStore.titleBarGesturesEnabled {
             DebugLog.info(DebugLog.dock, "Starting trackpad gesture monitoring")
@@ -76,6 +78,26 @@ final class DockGestureController {
             DebugLog.info(DebugLog.dock, "Stopping trackpad gesture monitoring")
             monitor.stop()
         }
+    }
+
+    nonisolated private func enqueue(frame: TrackpadTouchFrame) {
+        Task { @MainActor [weak self] in
+            self?.schedule(frame: frame)
+        }
+    }
+
+    private func schedule(frame: TrackpadTouchFrame) {
+        pendingTouchFrame = frame
+        guard isProcessingTouchFrame == false else { return }
+
+        isProcessingTouchFrame = true
+
+        while let nextFrame = pendingTouchFrame {
+            pendingTouchFrame = nil
+            handle(frame: nextFrame)
+        }
+
+        isProcessingTouchFrame = false
     }
 
     private func handle(frame: TrackpadTouchFrame) {

@@ -60,23 +60,27 @@ enum ShortcutModifierSet: String, CaseIterable, Codable, Identifiable, Sendable 
             return nil
         }
 
-        guard let match = Self.supportedFlagsByEventMask[normalizedFlags.rawValue] else {
+        switch normalizedFlags.rawValue {
+        case NSEvent.ModifierFlags.command.rawValue:
+            self = .commandOnly
+        case NSEvent.ModifierFlags([.command, .shift]).rawValue:
+            self = .commandShift
+        case NSEvent.ModifierFlags([.command, .option]).rawValue:
+            self = .commandOption
+        case NSEvent.ModifierFlags([.command, .control]).rawValue:
+            self = .commandControl
+        case NSEvent.ModifierFlags([.command, .option, .control]).rawValue:
+            self = .commandOptionControl
+        case NSEvent.ModifierFlags([.command, .shift, .control]).rawValue:
+            self = .commandShiftControl
+        case NSEvent.ModifierFlags([.command, .shift, .option]).rawValue:
+            self = .commandShiftOption
+        case NSEvent.ModifierFlags([.command, .shift, .option, .control]).rawValue:
+            self = .commandShiftOptionControl
+        default:
             return nil
         }
-
-        self = match
     }
-
-    private static let supportedFlagsByEventMask: [NSEvent.ModifierFlags.RawValue: ShortcutModifierSet] = [
-        NSEvent.ModifierFlags.command.rawValue: .commandOnly,
-        NSEvent.ModifierFlags([.command, .shift]).rawValue: .commandShift,
-        NSEvent.ModifierFlags([.command, .option]).rawValue: .commandOption,
-        NSEvent.ModifierFlags([.command, .control]).rawValue: .commandControl,
-        NSEvent.ModifierFlags([.command, .option, .control]).rawValue: .commandOptionControl,
-        NSEvent.ModifierFlags([.command, .shift, .control]).rawValue: .commandShiftControl,
-        NSEvent.ModifierFlags([.command, .shift, .option]).rawValue: .commandShiftOption,
-        NSEvent.ModifierFlags([.command, .shift, .option, .control]).rawValue: .commandShiftOptionControl,
-    ]
 }
 
 enum ShortcutKey: String, CaseIterable, Codable, Identifiable, Sendable {

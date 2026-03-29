@@ -103,30 +103,30 @@ final class SettingsStore {
         self.languageOverride = AppLanguage(
             rawValue: userDefaults.string(forKey: Keys.languageOverride) ?? ""
         ) ?? .system
-        if userDefaults.object(forKey: Keys.hotKeysEnabled) == nil {
-            self.hotKeysEnabled = true
-        } else {
-            self.hotKeysEnabled = userDefaults.bool(forKey: Keys.hotKeysEnabled)
-        }
-        if userDefaults.object(forKey: Keys.dockGesturesEnabled) == nil {
-            self.dockGesturesEnabled = true
-        } else {
-            self.dockGesturesEnabled = userDefaults.bool(forKey: Keys.dockGesturesEnabled)
-        }
-        if userDefaults.object(forKey: Keys.titleBarGesturesEnabled) == nil {
-            self.titleBarGesturesEnabled = true
-        } else {
-            self.titleBarGesturesEnabled = userDefaults.bool(forKey: Keys.titleBarGesturesEnabled)
-        }
+        self.hotKeysEnabled = Self.boolValue(
+            forKey: Keys.hotKeysEnabled,
+            defaultValue: true,
+            in: userDefaults
+        )
+        self.dockGesturesEnabled = Self.boolValue(
+            forKey: Keys.dockGesturesEnabled,
+            defaultValue: true,
+            in: userDefaults
+        )
+        self.titleBarGesturesEnabled = Self.boolValue(
+            forKey: Keys.titleBarGesturesEnabled,
+            defaultValue: true,
+            in: userDefaults
+        )
         self.gestureHUDStyle = GestureHUDStyle(
             storageValue: userDefaults.string(forKey: Keys.gestureHUDStyle)
         )
         #if DEBUG
-        if userDefaults.object(forKey: Keys.debugLoggingEnabled) == nil {
-            self.debugLoggingEnabled = false
-        } else {
-            self.debugLoggingEnabled = userDefaults.bool(forKey: Keys.debugLoggingEnabled)
-        }
+        self.debugLoggingEnabled = Self.boolValue(
+            forKey: Keys.debugLoggingEnabled,
+            defaultValue: false,
+            in: userDefaults
+        )
         #endif
         self.hotKeyBindings = Self.decodeHotKeyBindings(from: userDefaults) ?? HotKeyBindings.defaults
         self.dockGestureBindings = Self.decodeDockGestureBindings(from: userDefaults) ?? DockGestureBindings.defaults
@@ -314,6 +314,18 @@ final class SettingsStore {
             key: .a,
             modifiers: .commandOptionControl
         )
+    }
+
+    private static func boolValue(
+        forKey key: String,
+        defaultValue: Bool,
+        in userDefaults: UserDefaults
+    ) -> Bool {
+        guard userDefaults.object(forKey: key) != nil else {
+            return defaultValue
+        }
+
+        return userDefaults.bool(forKey: key)
     }
 
     private func persistHotKeyBindings() {

@@ -9,6 +9,7 @@ struct WindowOrderDescriptor: Equatable, Sendable {
 struct WindowOrdering {
     private let frameTolerance: CGFloat = 12
     private let centerTolerance: CGFloat = 24
+    private let titleNormalizationLocale = Locale.autoupdatingCurrent
 
     func frontToBack<T>(
         _ windows: [T],
@@ -138,7 +139,7 @@ struct WindowOrdering {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .folding(
                 options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive],
-                locale: .current
+                locale: titleNormalizationLocale
             )
     }
 }

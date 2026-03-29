@@ -91,7 +91,9 @@ enum L10n {
         }
     }
 
-    private static var resourcesBundle: Bundle {
+    private static let resourcesBundle: Bundle = resolveResourcesBundle()
+
+    private static func resolveResourcesBundle() -> Bundle {
         let bundleCandidates: [URL?] = [
             Bundle.main.resourceURL?.appendingPathComponent(resourceBundleName),
             Bundle.main.bundleURL.appendingPathComponent(resourceBundleName).absoluteURL,

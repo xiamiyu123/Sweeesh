@@ -159,7 +159,7 @@ struct SettingsStoreTests {
         #expect(store.titleBarGestureAction(for: .swipeRight) == .rightHalf)
         #expect(store.titleBarGestureAction(for: .swipeDown) == .minimize)
         #expect(store.titleBarGestureAction(for: .swipeUp) == .center)
-        #expect(store.titleBarGestureAction(for: .pinchIn) == .quitApplication)
+        #expect(store.titleBarGestureAction(for: .pinchIn) == .closeWindow)
     }
 
     @Test

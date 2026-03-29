@@ -31,6 +31,7 @@
 "welcome.permission.granted" = "Accessibility permission is granted.";
 "welcome.permission.missing" = "Accessibility permission has not been granted yet.";
 "welcome.grant_permission_action" = "Grant Permission";
+"welcome.refresh_permission_action" = "Refresh Permission Status";
 "welcome.open_settings_action" = "Open Settings";
 "welcome.primary_action" = "Grant Permission and Open Settings";
 "welcome.secondary_action" = "Later";

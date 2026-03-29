@@ -206,7 +206,7 @@ enum TitleBarGestureBindings {
         TitleBarGestureBinding(gesture: .swipeRight, action: .rightHalf),
         TitleBarGestureBinding(gesture: .swipeDown, action: .minimize),
         TitleBarGestureBinding(gesture: .swipeUp, action: .center),
-        TitleBarGestureBinding(gesture: .pinchIn, action: .quitApplication),
+        TitleBarGestureBinding(gesture: .pinchIn, action: .closeWindow),
     ]
 
     static func fallbackBinding(for gesture: DockGestureKind) -> TitleBarGestureBinding {
@@ -220,7 +220,7 @@ enum TitleBarGestureBindings {
         case .swipeUp:
             return TitleBarGestureBinding(gesture: .swipeUp, action: .center)
         case .pinchIn:
-            return TitleBarGestureBinding(gesture: .pinchIn, action: .quitApplication)
+            return TitleBarGestureBinding(gesture: .pinchIn, action: .closeWindow)
         }
     }
 

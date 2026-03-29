@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 @MainActor
@@ -17,11 +18,15 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
             permissionGrantedText: settingsStore.localized("welcome.permission.granted"),
             permissionMissingText: settingsStore.localized("welcome.permission.missing"),
             grantPermissionActionTitle: settingsStore.localized("welcome.grant_permission_action"),
+            refreshPermissionActionTitle: settingsStore.localized("welcome.refresh_permission_action"),
             openSettingsActionTitle: settingsStore.localized("welcome.open_settings_action"),
             secondaryActionTitle: settingsStore.localized("welcome.secondary_action"),
             initialPermissionGranted: permissionManager.isTrusted(promptIfNeeded: false),
             onRequestPermission: {
                 permissionManager.isTrusted(promptIfNeeded: true)
+            },
+            onRefreshPermissionState: {
+                permissionManager.isTrusted(promptIfNeeded: false)
             },
             onOpenSettings: {
                 onOpenSettings()
@@ -70,13 +75,18 @@ private struct WelcomeView: View {
     let permissionGrantedText: String
     let permissionMissingText: String
     let grantPermissionActionTitle: String
+    let refreshPermissionActionTitle: String
     let openSettingsActionTitle: String
     let secondaryActionTitle: String
     let onRequestPermission: () -> Bool
+    let onRefreshPermissionState: () -> Bool
     let onOpenSettings: () -> Void
     let onDismiss: () -> Void
 
     @State private var permissionGranted: Bool
+    private let permissionRefreshTimer = Timer
+        .publish(every: 1.0, on: .main, in: .common)
+        .autoconnect()
 
     init(
         title: String,
@@ -86,10 +96,12 @@ private struct WelcomeView: View {
         permissionGrantedText: String,
         permissionMissingText: String,
         grantPermissionActionTitle: String,
+        refreshPermissionActionTitle: String,
         openSettingsActionTitle: String,
         secondaryActionTitle: String,
         initialPermissionGranted: Bool,
         onRequestPermission: @escaping () -> Bool,
+        onRefreshPermissionState: @escaping () -> Bool,
         onOpenSettings: @escaping () -> Void,
         onDismiss: @escaping () -> Void
     ) {
@@ -100,9 +112,11 @@ private struct WelcomeView: View {
         self.permissionGrantedText = permissionGrantedText
         self.permissionMissingText = permissionMissingText
         self.grantPermissionActionTitle = grantPermissionActionTitle
+        self.refreshPermissionActionTitle = refreshPermissionActionTitle
         self.openSettingsActionTitle = openSettingsActionTitle
         self.secondaryActionTitle = secondaryActionTitle
         self.onRequestPermission = onRequestPermission
+        self.onRefreshPermissionState = onRefreshPermissionState
         self.onOpenSettings = onOpenSettings
         self.onDismiss = onDismiss
         _permissionGranted = State(initialValue: initialPermissionGranted)
@@ -128,6 +142,11 @@ private struct WelcomeView: View {
                 Text(permissionGranted ? permissionGrantedText : permissionMissingText)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+                Button(refreshPermissionActionTitle) {
+                    refreshPermissionState()
+                }
+                .controlSize(.small)
             }
 
             Spacer()
@@ -139,7 +158,9 @@ private struct WelcomeView: View {
                 }
                 Button(grantPermissionActionTitle) {
                     permissionGranted = onRequestPermission()
+                    refreshPermissionState()
                 }
+                .disabled(permissionGranted)
                 Button(openSettingsActionTitle) {
                     onOpenSettings()
                 }
@@ -149,6 +170,10 @@ private struct WelcomeView: View {
         }
         .padding(24)
         .frame(minWidth: 560, minHeight: 400)
+        .onAppear(perform: refreshPermissionState)
+        .onReceive(permissionRefreshTimer) { _ in
+            refreshPermissionState()
+        }
     }
 
     private func stepRow(index: Int, text: String) -> some View {
@@ -161,5 +186,9 @@ private struct WelcomeView: View {
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
         }
+    }
+
+    private func refreshPermissionState() {
+        permissionGranted = onRefreshPermissionState()
     }
 }

@@ -63,7 +63,7 @@ final class GlobalHotKeyController {
             object: settingsStore,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in
+            MainActor.assumeIsolated {
                 self?.syncRegisteredHotKeys()
             }
         }

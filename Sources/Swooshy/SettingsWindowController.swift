@@ -30,7 +30,7 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
             object: settingsStore,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in
+            MainActor.assumeIsolated {
                 self?.updateWindowTitle()
             }
         }

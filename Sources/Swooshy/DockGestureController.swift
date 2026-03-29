@@ -67,7 +67,7 @@ final class DockGestureController {
             object: settingsStore,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in
+            MainActor.assumeIsolated {
                 self?.dockProbe.clearCache()
                 self?.titleBarProbe.clearCache()
                 self?.syncMonitoring()

@@ -76,7 +76,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             object: settingsStore,
             queue: .main
         ) { [weak self] _ in
-            Task { @MainActor in
+            MainActor.assumeIsolated {
                 self?.rebuildMenu()
             }
         }

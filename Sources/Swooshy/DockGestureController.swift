@@ -26,6 +26,7 @@ final class DockGestureController {
     private var isProcessingTouchFrame = false
     private var monitoringState: MonitoringState?
     private var isShuttingDown = false
+    private let restoreHUDLeadDelay: UInt64 = 16_000_000
 
     private struct MonitoringState: Equatable {
         let dockGesturesEnabled: Bool
@@ -201,20 +202,40 @@ final class DockGestureController {
     }
 
     private func handleDockGestureEvent(_ event: DockGestureEvent, anchorPoint: CGPoint) {
-        do {
-            let action = settingsStore.dockGestureAction(for: event.gesture)
-            let application = event.application
-            gestureFeedbackPresenter.show(
-                gesture: event.gesture,
-                gestureTitle: event.gesture.title(preferredLanguages: settingsStore.preferredLanguages),
-                actionTitle: action.title(preferredLanguages: settingsStore.preferredLanguages),
-                anchor: anchorPoint
-            )
-            DebugLog.info(
-                DebugLog.dock,
-                "Dock gesture \(event.gesture.rawValue) mapped to \(action.rawValue) for \(application.logDescription)"
-            )
+        let action = settingsStore.dockGestureAction(for: event.gesture)
+        let application = event.application
+        gestureFeedbackPresenter.show(
+            gesture: event.gesture,
+            gestureTitle: event.gesture.title(preferredLanguages: settingsStore.preferredLanguages),
+            actionTitle: action.title(preferredLanguages: settingsStore.preferredLanguages),
+            anchor: anchorPoint
+        )
+        DebugLog.info(
+            DebugLog.dock,
+            "Dock gesture \(event.gesture.rawValue) mapped to \(action.rawValue) for \(application.logDescription)"
+        )
 
+        scheduleDockGestureAction(action, for: application)
+    }
+
+    private func scheduleDockGestureAction(_ action: DockGestureAction, for application: DockApplicationTarget) {
+        Task { @MainActor [weak self] in
+            guard let self, self.isShuttingDown == false else { return }
+
+            await Task.yield()
+
+            // Give AppKit one frame to present HUD before heavier restore AX work.
+            if action == .restoreWindow {
+                try? await Task.sleep(nanoseconds: self.restoreHUDLeadDelay)
+                guard self.isShuttingDown == false else { return }
+            }
+
+            self.performDockGestureAction(action, for: application)
+        }
+    }
+
+    private func performDockGestureAction(_ action: DockGestureAction, for application: DockApplicationTarget) {
+        do {
             switch action {
             case .minimizeWindow:
                 _ = try windowManager.minimizeVisibleWindow(of: application)

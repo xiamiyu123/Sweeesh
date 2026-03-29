@@ -91,20 +91,5 @@ enum L10n {
         }
     }
 
-    private static let resourcesBundle: Bundle = resolveResourcesBundle()
-
-    private static func resolveResourcesBundle() -> Bundle {
-        let bundleCandidates: [URL?] = [
-            Bundle.main.resourceURL?.appendingPathComponent(resourceBundleName),
-            Bundle.main.bundleURL.appendingPathComponent(resourceBundleName).absoluteURL,
-        ]
-
-        for candidate in bundleCandidates.compactMap({ $0 }) {
-            if let bundle = Bundle(url: candidate) {
-                return bundle
-            }
-        }
-
-        return .module
-    }
+    private static let resourcesBundle: Bundle = .appResources
 }

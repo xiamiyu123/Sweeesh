@@ -65,6 +65,21 @@ jobs:
           VERSION="${TAG#v}"
           APP_VERSION="$VERSION" ZIP_NAME="${{ steps.meta.outputs.asset_name }}" ./scripts/package-macos-app.sh
 
+      - name: Verify App Launch
+        run: |
+          APP_BIN="dist/Swooshy.app/Contents/MacOS/Swooshy"
+          "$APP_BIN" >/tmp/app_out.log 2>&1 &
+          PID=$!
+          sleep 3
+          if kill -0 "$PID" 2>/dev/null; then
+            echo "App is running successfully in background."
+            kill -9 "$PID" || true
+          else
+            echo "App crashed on launch. Logs:"
+            cat /tmp/app_out.log
+            exit 1
+          fi
+
       - name: Ensure Tag Exists
         run: |
           TAG="${{ inputs.tag }}"

@@ -34,13 +34,13 @@ enum StatusItemTemplateImage {
             let url: URL?
 
             if let subdirectory {
-                url = Bundle.module.url(
+                url = Bundle.appResources.url(
                     forResource: name,
                     withExtension: fileExtension,
                     subdirectory: subdirectory
                 )
             } else {
-                url = Bundle.module.url(forResource: name, withExtension: fileExtension)
+                url = Bundle.appResources.url(forResource: name, withExtension: fileExtension)
             }
 
             if let url {

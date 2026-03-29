@@ -157,4 +157,33 @@ struct SettingsStoreTests {
         #expect(binding.key == .grave)
         #expect(binding.modifiers == .commandShiftOptionControl)
     }
+
+    @Test
+    func coalescesSynchronousSettingsChangeNotifications() async {
+        let suiteName = "Swooshy.SettingsStoreTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+
+        let store = SettingsStore(userDefaults: defaults)
+        var notificationCount = 0
+        let token = NotificationCenter.default.addObserver(
+            forName: .settingsDidChange,
+            object: store,
+            queue: nil
+        ) { _ in
+            notificationCount += 1
+        }
+        defer {
+            NotificationCenter.default.removeObserver(token)
+        }
+
+        store.hotKeysEnabled = false
+        store.dockGesturesEnabled = false
+        store.titleBarGesturesEnabled = false
+
+        await Task.yield()
+        try? await Task.sleep(nanoseconds: 20_000_000)
+
+        #expect(notificationCount == 1)
+    }
 }

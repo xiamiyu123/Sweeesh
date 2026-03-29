@@ -10,6 +10,8 @@ extension Notification.Name {
 final class SettingsStore {
     @ObservationIgnored
     private let userDefaults: UserDefaults
+    @ObservationIgnored
+    private var notificationDispatchPending = false
 
     var languageOverride: AppLanguage {
         didSet {
@@ -291,7 +293,19 @@ final class SettingsStore {
     }
 
     private func notifyDidChange() {
-        NotificationCenter.default.post(name: .settingsDidChange, object: self)
+        guard notificationDispatchPending == false else {
+            return
+        }
+
+        notificationDispatchPending = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else {
+                return
+            }
+
+            self.notificationDispatchPending = false
+            NotificationCenter.default.post(name: .settingsDidChange, object: self)
+        }
     }
 
     private func fallbackBinding(for action: WindowAction) -> HotKeyBinding {

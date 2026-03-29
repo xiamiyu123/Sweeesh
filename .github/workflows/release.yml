@@ -32,6 +32,7 @@ jobs:
     env:
       HOMEBREW_TAP_REPO: git@github.com:xiamiyu123/homebrew-swooshy.git
       HOMEBREW_TAP_BRANCH: main
+      COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -103,17 +104,16 @@ jobs:
 
       - name: Set up Node.js for Copilot CLI
         uses: actions/setup-node@v4
-        if: ${{ secrets.COPILOT_GITHUB_TOKEN != '' }}
+        if: ${{ env.COPILOT_GITHUB_TOKEN != '' }}
 
       - name: Install Copilot CLI
-        if: ${{ secrets.COPILOT_GITHUB_TOKEN != '' }}
+        if: ${{ env.COPILOT_GITHUB_TOKEN != '' }}
         run: npm install -g @github/copilot
 
       - name: Rewrite Release Notes With Copilot
-        if: ${{ secrets.COPILOT_GITHUB_TOKEN != '' }}
+        if: ${{ env.COPILOT_GITHUB_TOKEN != '' }}
         env:
           GH_TOKEN: ${{ github.token }}
-          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
           REPOSITORY: ${{ github.repository }}
           RELEASE_TAG: ${{ inputs.tag }}
           RELEASE_NAME: ${{ steps.meta.outputs.release_name }}
@@ -151,7 +151,7 @@ jobs:
             --notes-file release-notes-final.md
 
       - name: Warn If Copilot Secret Is Missing
-        if: ${{ secrets.COPILOT_GITHUB_TOKEN == '' }}
+        if: ${{ env.COPILOT_GITHUB_TOKEN == '' }}
         run: |
           echo "COPILOT_GITHUB_TOKEN is not configured; skipping Copilot rewrite for release notes."
 

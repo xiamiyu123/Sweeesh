@@ -1,4 +1,4 @@
-# Swooshy
+# <img src="artwork/app-icon/AppIcon-1024.png" width="48" height="48" alt="Swooshy Icon" style="vertical-align: middle;"> Swooshy
 
 更轻量化，开源，可自定义的macOS 触控板增强工具。
 
@@ -9,29 +9,97 @@
 - 多语言支持
 - 自定义手势动作与快捷键
 
-## 默认手势
+## 目录
 
-### Dock 手势
+- [操作方式](#操作方式)
+- [安装与运行](#安装与运行)
+- [与 Swish 的关系](#与-swish-的关系)
+- [许可证](#许可证)
 
-当鼠标悬停在 Dock 图标上时：
+## 操作方式
 
-- 双指左滑：向前切换该应用窗口
-- 双指右滑：向后切换该应用窗口
-- 双指下滑：最小化该应用的一个可见窗口
-- 双指上滑：恢复该应用的一个最小化窗口
-- 双指捏合：退出该应用
+Swooshy 通过**直觉化的双指手势**来管理窗口。所有手势都建立在两个特定的触发区域：**窗口标题栏** 和 **Dock栏图标**。
 
-### 标题栏手势
+<details open>
+<summary><b>第一页：Dock 图标手势 - 切换同应用窗口</b></summary>
 
-当鼠标悬停在最前窗口的标题栏区域时：
+当鼠标悬停在 **Dock 上的应用图标** 时，可以直接管理该应用已经打开的多个窗口：
 
-- 双指左滑：贴靠到左半屏
-- 双指右滑：贴靠到右半屏
-- 双指下滑：最小化当前窗口
-- 双指上滑：填充整个屏幕
-- 双指捏合：退出当前应用
+* **双指左滑 / 右滑**：在该应用的多个窗口之间快速前后切换。
+* 这类操作尤其适合 Finder、浏览器、编辑器这类经常同时开很多窗口的应用。
 
-以上映射都可以在 `Settings…` 中单独开启、关闭或改成别的动作。
+<br>
+<img src="docs/images/step1.jpg" width="600" alt="Dock 图标手势-切换同应用窗口" style="border-radius: 8px;">
+
+</details>
+
+<details>
+<summary><b>第二页：Dock 图标手势 - 显示与隐藏</b></summary>
+
+依然悬停在 **Dock 的应用图标** 上，使用触控板上下滑动：
+
+* **双指下滑**：最小化该应用的一个可见窗口。
+* **双指上滑**：恢复/拉起该应用的一个处于最小化状态的窗口。
+* 当某个应用窗口很多时，这个动作比去 Dock 点开收起更顺手。
+
+<br>
+<img src="docs/images/step4.jpg" width="600" alt="Dock 图标手势-最小化与恢复" style="border-radius: 8px;">
+
+</details>
+
+<details>
+<summary><b>第三页：Dock 图标手势 - 捏合退出应用</b></summary>
+
+如果鼠标悬停在 **Dock 的应用图标** 上，还可以直接用捏合手势结束该应用：
+
+* **双指捏合**：退出当前应用。
+* 这个动作针对的是应用本身，不只是关闭单个窗口。
+
+<br>
+<img src="docs/images/step5.jpg" width="600" alt="Dock 图标手势-捏合退出应用" style="border-radius: 8px;">
+
+</details>
+
+<details>
+<summary><b>第四页：标题栏手势 - 触发区域与上下滑</b></summary>
+
+将鼠标悬停在 **最前窗口的标题栏区域**，这里就是标题栏手势的触发带：
+
+* **双指上滑**：让当前窗口填充整个屏幕可视区域。
+* **双指下滑**：把当前窗口最小化到 Dock。
+* 先把指针停在标题栏，再做手势，识别会更稳定。
+
+<br>
+<img src="docs/images/step2.jpg" width="600" alt="标题栏手势-触发区域与上下滑" style="border-radius: 8px;">
+
+</details>
+
+<details>
+<summary><b>第五页：标题栏手势 - 左右贴靠窗口</b></summary>
+
+继续将鼠标悬停在 **窗口标题栏区域**，使用左右滑动即可快速整理当前窗口布局：
+
+* **双指左滑**：将当前窗口贴靠到屏幕左半边。
+* **双指右滑**：将当前窗口贴靠到屏幕右半边。
+* 非常适合和另一个窗口并排对照查看。
+
+<br>
+<img src="docs/images/step3.jpg" width="600" alt="标题栏手势-左右贴靠窗口" style="border-radius: 8px;">
+
+</details>
+
+<details>
+<summary><b>第六页：自定义设置与全局快捷键</b></summary>
+
+如果你习惯使用键盘，Swooshy 也提供了全局快捷键；所有手势映射和快捷键都可以在菜单栏点击 `Settings…` 后自由录制和修改。
+
+* **停靠左右屏**：`Control + Option + Command + 左/右方向键`
+* **填充可视区域**：`Control + Option + Command + 上方向键 / C`
+* **应用内窗口切换**：`Control + Option + Command + \`` （配合 `Shift` 反向）
+* **关闭 / 最小化**：`Control + Option + Command + W / M`
+* **退出当前应用**：`Control + Option + Command + Q`
+
+</details>
 
 ## 安装与运行
 
@@ -108,33 +176,6 @@ swift run
 ```
 
 打包说明见 [docs/local-packaging.md](docs/local-packaging.md)。
-
-## 默认快捷键
-
-- `Control + Option + Command + Left Arrow`：贴靠到左半屏
-- `Control + Option + Command + Right Arrow`：贴靠到右半屏
-- `Control + Option + Command + Up Arrow`：最大化到可视区域
-- `Control + Option + Command + C`：填充整个屏幕
-- `Control + Option + Command + M`：最小化到 Dock
-- `Control + Option + Command + W`：关闭当前窗口
-- `Control + Option + Command + Q`：退出当前应用
-- `Control + Option + Command + \``：向前切换当前应用窗口
-- `Control + Shift + Option + Command + \``：向后切换当前应用窗口
-
-快捷键支持重新录制
-
-## 使用方式
-
-Swooshy 是一个纯菜单栏应用，不显示 Dock 图标。
-
-启动后你可以这样使用它：
-
-1. 点击菜单栏图标，直接触发窗口动作
-2. 打开 `Settings…`，配置语言、快捷键和手势映射
-3. 将鼠标移动到 Dock 图标上，配合双指手势操作对应应用
-4. 将鼠标移动到最前窗口标题栏上，配合双指手势操作当前窗口
-
-如果权限状态发生变化，也可以在菜单中手动刷新。
 
 ## 权限与限制
 

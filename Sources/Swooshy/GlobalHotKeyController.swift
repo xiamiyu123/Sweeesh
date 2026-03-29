@@ -47,7 +47,7 @@ final class GlobalHotKeyController {
 
         let selfPointer = UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque())
 
-        InstallEventHandler(
+        let status = InstallEventHandler(
             GetApplicationEventTarget(),
             Self.eventHandler,
             1,
@@ -55,6 +55,12 @@ final class GlobalHotKeyController {
             selfPointer,
             &eventHandlerRef
         )
+
+        guard status == noErr else {
+            eventHandlerRef = nil
+            DebugLog.error(DebugLog.hotkeys, "Failed to install global hotkey event handler; status \(status)")
+            return
+        }
     }
 
     private func observeSettings() {

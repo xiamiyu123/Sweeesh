@@ -36,6 +36,9 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             NotificationCenter.default.removeObserver(settingsObserver)
             self.settingsObserver = nil
         }
+
+        menu.delegate = nil
+        statusItem.menu = nil
     }
 
     func menuWillOpen(_ menu: NSMenu) {

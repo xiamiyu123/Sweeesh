@@ -41,6 +41,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
             NotificationCenter.default.removeObserver(settingsObserver)
             self.settingsObserver = nil
         }
+
+        window?.delegate = nil
     }
 
     @available(*, unavailable)

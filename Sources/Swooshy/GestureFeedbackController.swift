@@ -17,7 +17,6 @@ final class GestureFeedbackController: GestureFeedbackPresenting {
     private let panel: NSPanel
     private let messageLabel = NSTextField(labelWithString: "")
     private let titleLabel = NSTextField(labelWithString: "")
-    private let subtitleLabel = NSTextField(labelWithString: "")
     private let glyphView = GestureGlyphView(frame: .zero)
     private let glyphBadgeView = NSView(frame: .zero)
     private var dismissTask: Task<Void, Never>?
@@ -83,7 +82,6 @@ final class GestureFeedbackController: GestureFeedbackPresenting {
         configureContent(for: settingsStore.gestureHUDStyle)
         messageLabel.stringValue = "\(gestureTitle) · \(actionTitle)"
         titleLabel.stringValue = actionTitle
-        subtitleLabel.stringValue = gestureTitle
         glyphView.gesture = gesture
 
         let anchorPoint = anchor ?? NSEvent.mouseLocation
@@ -99,7 +97,11 @@ final class GestureFeedbackController: GestureFeedbackPresenting {
         let generation = hideGeneration
 
         dismissTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: delay)
+            do {
+                try await Task.sleep(nanoseconds: delay)
+            } catch {
+                return
+            }
             guard !Task.isCancelled else { return }
 
             await MainActor.run {
@@ -141,12 +143,6 @@ final class GestureFeedbackController: GestureFeedbackPresenting {
         titleLabel.maximumNumberOfLines = 1
         titleLabel.lineBreakMode = .byTruncatingTail
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
-
-        subtitleLabel.font = .systemFont(ofSize: 11, weight: .medium)
-        subtitleLabel.textColor = .secondaryLabelColor
-        subtitleLabel.maximumNumberOfLines = 1
-        subtitleLabel.lineBreakMode = .byTruncatingTail
-        subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
 
         glyphView.translatesAutoresizingMaskIntoConstraints = false
         glyphView.glyphStyle = .minimal

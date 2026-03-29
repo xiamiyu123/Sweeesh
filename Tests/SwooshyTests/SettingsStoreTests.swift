@@ -160,18 +160,28 @@ struct SettingsStoreTests {
 
     @Test
     func coalescesSynchronousSettingsChangeNotifications() async {
+        actor NotificationCounter {
+            private(set) var count = 0
+
+            func increment() {
+                count += 1
+            }
+        }
+
         let suiteName = "Swooshy.SettingsStoreTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defaults.removePersistentDomain(forName: suiteName)
 
         let store = SettingsStore(userDefaults: defaults)
-        var notificationCount = 0
+        let notificationCounter = NotificationCounter()
         let token = NotificationCenter.default.addObserver(
             forName: .settingsDidChange,
             object: store,
             queue: nil
         ) { _ in
-            notificationCount += 1
+            Task {
+                await notificationCounter.increment()
+            }
         }
         defer {
             NotificationCenter.default.removeObserver(token)
@@ -181,9 +191,10 @@ struct SettingsStoreTests {
         store.dockGesturesEnabled = false
         store.titleBarGesturesEnabled = false
 
-        await Task.yield()
-        try? await Task.sleep(nanoseconds: 20_000_000)
+        for _ in 0 ..< 3 {
+            await Task.yield()
+        }
 
-        #expect(notificationCount == 1)
+        #expect(await notificationCounter.count == 1)
     }
 }

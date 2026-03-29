@@ -48,6 +48,7 @@
 
 ```bash
 brew tap xiamiyu123/swooshy
+brew update
 brew install --cask swooshy
 ```
 
@@ -56,6 +57,7 @@ brew install --cask swooshy
 ```bash
 open /Applications/Swooshy.app
 ```
+[遇到 Apple 安全警告时](#apple-security-warning)
 
 ### 从 Release 下载
 

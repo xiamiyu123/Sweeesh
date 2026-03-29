@@ -23,6 +23,18 @@
 "alert.about.title" = "使用说明";
 "alert.about.message" = "开始使用：\n1. 点击菜单栏图标并先确认已授予辅助功能权限。\n2. 打开“设置…”，按需调整手势映射和全局快捷键。\n3. 鼠标悬停在 Dock 项目上后，使用双指手势操作对应应用窗口。\n4. 鼠标悬停在最前窗口标题栏后，使用双指手势操作当前窗口。\n\n如果权限或行为异常，可在设置中删除Swooshy后重新授予权限，并在菜单中点击“刷新权限状态”后重试。";
 
+"welcome.window.title" = "欢迎";
+"welcome.title" = "欢迎使用 Swooshy";
+"welcome.message" = "在手势和快捷键稳定工作前，建议先完成一次首次设置。";
+"welcome.step.permission" = "点击下方按钮后按提示授予“辅助功能”权限，Swooshy 才能读取和移动窗口。";
+"welcome.step.settings" = "随后会自动打开设置窗口，方便你检查手势映射和快捷键。";
+"welcome.permission.granted" = "辅助功能权限已授予。";
+"welcome.permission.missing" = "尚未授予辅助功能权限。";
+"welcome.grant_permission_action" = "授予权限";
+"welcome.open_settings_action" = "打开设置";
+"welcome.primary_action" = "授权并打开设置";
+"welcome.secondary_action" = "稍后";
+
 "settings.window.title" = "设置";
 "settings.section.general" = "通用";
 "settings.section.gestures" = "手势";

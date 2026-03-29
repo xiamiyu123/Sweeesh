@@ -23,6 +23,7 @@ struct StatusMenuContentBuilder {
         localeIdentifier: String? = nil,
         preferredLanguages: [String] = Locale.preferredLanguages
     ) -> [StatusMenuEntry] {
+        let permissionMissing = permissionGranted == false
         let localized: (String) -> String = { key in
             L10n.string(
                 key,
@@ -53,7 +54,7 @@ struct StatusMenuContentBuilder {
                 title: localized(
                     permissionGranted ? "menu.permission.ready" : "menu.permission.grant"
                 ),
-                isEnabled: !permissionGranted
+                isEnabled: permissionMissing
             ),
             StatusMenuEntry(
                 kind: .refresh,
@@ -74,7 +75,7 @@ struct StatusMenuContentBuilder {
             StatusMenuEntry(
                 kind: .settings,
                 title: localized("menu.settings"),
-                isEnabled: true
+                isEnabled: permissionGranted
             ),
             StatusMenuEntry(
                 kind: .separator,
@@ -84,12 +85,12 @@ struct StatusMenuContentBuilder {
             StatusMenuEntry(
                 kind: .help,
                 title: localized("menu.help"),
-                isEnabled: true
+                isEnabled: permissionGranted
             ),
             StatusMenuEntry(
                 kind: .quit,
                 title: localized("menu.quit"),
-                isEnabled: true
+                isEnabled: permissionGranted
             ),
         ]
     }

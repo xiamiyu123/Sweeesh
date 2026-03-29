@@ -37,6 +37,19 @@ struct StatusMenuContentBuilderTests {
     }
 
     @Test
+    func permissionAndRefreshEntriesAreEnabledWhenPermissionMissing() {
+        let entries = builder.makeEntries(
+            permissionGranted: false,
+            preferredLanguages: ["en-US"]
+        )
+
+        let enabledEntries = entries.filter(\.isEnabled)
+        #expect(enabledEntries.count == 2)
+        #expect(enabledEntries.contains { $0.kind == .permission })
+        #expect(enabledEntries.contains { $0.kind == .refresh })
+    }
+
+    @Test
     func menuFallsBackToEnglishForUnsupportedPreferredLanguages() {
         let entries = builder.makeEntries(
             permissionGranted: false,

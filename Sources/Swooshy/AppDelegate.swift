@@ -2,15 +2,30 @@ import AppKit
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private enum LaunchArgument {
+        static let resetUserConfiguration = "--reset-user-config"
+    }
+
     private var statusBarController: StatusBarController?
     private var globalHotKeyController: GlobalHotKeyController?
     private var settingsWindowController: SettingsWindowController?
+    private var welcomeWindowController: WelcomeWindowController?
     private var dockGestureController: DockGestureController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        let shouldResetUserConfiguration = ProcessInfo.processInfo.arguments.contains(
+            LaunchArgument.resetUserConfiguration
+        )
+        if shouldResetUserConfiguration {
+            SettingsStore.resetPersistedConfiguration()
+        }
+
         let settingsStore = SettingsStore()
         DebugLog.info(DebugLog.app, "Swooshy launch sequence started")
         DebugLog.info(DebugLog.app, "Debug log file path: \(DebugLog.logFilePathDescription)")
+        if shouldResetUserConfiguration {
+            DebugLog.info(DebugLog.app, "Launch argument \(LaunchArgument.resetUserConfiguration) detected; user configuration reset")
+        }
         let permissionManager = AccessibilityPermissionManager()
         let windowManager = WindowManager()
         let layoutEngine = WindowLayoutEngine()
@@ -21,15 +36,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let alertPresenter = AppAlertPresenter()
         let gestureFeedbackPresenter = GestureFeedbackController(settingsStore: settingsStore)
         let settingsWindowController = SettingsWindowController(settingsStore: settingsStore)
+        let welcomeWindowController = WelcomeWindowController(
+            settingsStore: settingsStore,
+            permissionManager: permissionManager,
+            onOpenSettings: { [weak settingsWindowController] in
+                settingsWindowController?.show()
+            }
+        )
 
         self.settingsWindowController = settingsWindowController
+        self.welcomeWindowController = welcomeWindowController
 
         statusBarController = StatusBarController(
             permissionManager: permissionManager,
             windowActionRunner: windowActionRunner,
             alertPresenter: alertPresenter,
             settingsStore: settingsStore,
-            settingsWindowController: settingsWindowController
+            settingsWindowController: settingsWindowController,
+            welcomeWindowController: welcomeWindowController
         )
 
         globalHotKeyController = GlobalHotKeyController(
@@ -46,6 +70,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             settingsStore: settingsStore
         )
 
+        if settingsStore.consumeWelcomeGuidePresentationFlag() {
+            welcomeWindowController.show()
+        }
+
         DebugLog.info(DebugLog.app, "Swooshy launch sequence completed")
     }
 
@@ -54,10 +82,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         globalHotKeyController?.shutdown()
         statusBarController?.shutdown()
         settingsWindowController?.shutdown()
+        welcomeWindowController?.shutdown()
 
         dockGestureController = nil
         globalHotKeyController = nil
         statusBarController = nil
         settingsWindowController = nil
+        welcomeWindowController = nil
     }
 }

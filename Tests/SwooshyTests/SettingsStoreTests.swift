@@ -84,6 +84,50 @@ struct SettingsStoreTests {
     }
 
     @Test
+    func welcomeGuideFlagIsConsumedOnlyOnceAndPersists() {
+        let suiteName = "Swooshy.SettingsStoreTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+
+        let store = SettingsStore(userDefaults: defaults)
+        #expect(store.hasSeenWelcomeGuide == false)
+        #expect(store.consumeWelcomeGuidePresentationFlag() == true)
+        #expect(store.hasSeenWelcomeGuide == true)
+        #expect(store.consumeWelcomeGuidePresentationFlag() == false)
+
+        let reloadedStore = SettingsStore(userDefaults: defaults)
+        #expect(reloadedStore.hasSeenWelcomeGuide == true)
+        #expect(reloadedStore.consumeWelcomeGuidePresentationFlag() == false)
+    }
+
+    @Test
+    func resetPersistedConfigurationClearsStoredValues() {
+        let suiteName = "Swooshy.SettingsStoreTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+
+        let store = SettingsStore(userDefaults: defaults)
+        store.languageOverride = .simplifiedChinese
+        store.hotKeysEnabled = false
+        store.dockGesturesEnabled = false
+        store.titleBarGesturesEnabled = false
+        store.statusItemIcon = .windowGrid
+        _ = store.consumeWelcomeGuidePresentationFlag()
+        store.updateDockGestureAction(.closeWindow, for: .pinchIn)
+
+        SettingsStore.resetPersistedConfiguration(in: defaults)
+        let reloadedStore = SettingsStore(userDefaults: defaults)
+
+        #expect(reloadedStore.languageOverride == .system)
+        #expect(reloadedStore.hotKeysEnabled == true)
+        #expect(reloadedStore.dockGesturesEnabled == true)
+        #expect(reloadedStore.titleBarGesturesEnabled == true)
+        #expect(reloadedStore.statusItemIcon == .gale)
+        #expect(reloadedStore.hasSeenWelcomeGuide == false)
+        #expect(reloadedStore.dockGestureAction(for: .pinchIn) == .quitApplication)
+    }
+
+    @Test
     func pinchGestureUsesQuitApplicationByDefault() {
         let suiteName = "Swooshy.SettingsStoreTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!

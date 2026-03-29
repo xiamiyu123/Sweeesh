@@ -7,6 +7,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     private let alertPresenter: AlertPresenting
     private let settingsStore: SettingsStore
     private let settingsWindowController: SettingsWindowController
+    private let welcomeWindowController: WelcomeWindowController
     private let menuContentBuilder = StatusMenuContentBuilder()
     private let statusItem: NSStatusItem
     private let menu = NSMenu()
@@ -18,13 +19,15 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         windowActionRunner: WindowActionRunning,
         alertPresenter: AlertPresenting,
         settingsStore: SettingsStore,
-        settingsWindowController: SettingsWindowController
+        settingsWindowController: SettingsWindowController,
+        welcomeWindowController: WelcomeWindowController
     ) {
         self.permissionManager = permissionManager
         self.windowActionRunner = windowActionRunner
         self.alertPresenter = alertPresenter
         self.settingsStore = settingsStore
         self.settingsWindowController = settingsWindowController
+        self.welcomeWindowController = welcomeWindowController
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         super.init()
         configureStatusItem()
@@ -59,6 +62,8 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         button.imageScaling = .scaleProportionallyDown
         updateStatusItemAppearance(using: button)
 
+        // Prevent AppKit from auto-validating items and overriding manual enabled states.
+        menu.autoenablesItems = false
         menu.delegate = self
         statusItem.menu = menu
     }
@@ -101,7 +106,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
         )
 
         for entry in entries {
-            menu.addItem(menuItem(for: entry))
+            menu.addItem(menuItem(for: entry, permissionGranted: permissionGranted))
         }
     }
 
@@ -120,17 +125,8 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
     @objc
     private func requestAccessibilityAccess() {
-        let granted = permissionManager.isTrusted(promptIfNeeded: true)
-        DebugLog.info(DebugLog.accessibility, "Accessibility prompt result = \(granted)")
-
-        if !granted {
-            alertPresenter.show(
-                title: settingsStore.localized("alert.permission_required.title"),
-                message: settingsStore.localized("alert.permission_required.message")
-            )
-        }
-
-        rebuildMenu()
+        DebugLog.info(DebugLog.accessibility, "Permission menu clicked; showing welcome guide")
+        welcomeWindowController.show()
     }
 
     @objc
@@ -141,6 +137,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
     @objc
     private func runWindowAction(_ sender: NSMenuItem) {
+        guard handleMissingPermissionFallback(for: "window action") == false else { return }
         guard let action = sender.representedObject as? WindowAction else { return }
         DebugLog.info(DebugLog.app, "Menu triggered action \(action.title(preferredLanguages: settingsStore.preferredLanguages))")
 
@@ -157,11 +154,13 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
     @objc
     private func showSettingsWindow() {
+        guard handleMissingPermissionFallback(for: "settings") == false else { return }
         settingsWindowController.show()
     }
 
     @objc
     private func showHelpPanel() {
+        guard handleMissingPermissionFallback(for: "help") == false else { return }
         alertPresenter.show(
             title: settingsStore.localized("alert.about.title"),
             message: settingsStore.localized("alert.about.message")
@@ -170,10 +169,28 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
     @objc
     private func quit() {
+        guard handleMissingPermissionFallback(for: "quit") == false else { return }
         NSApplication.shared.terminate(nil)
     }
 
-    private func menuItem(for entry: StatusMenuEntry) -> NSMenuItem {
+    private func handleMissingPermissionFallback(for actionName: String) -> Bool {
+        let permissionGranted = permissionManager.isTrusted(promptIfNeeded: false)
+        guard permissionGranted == false else {
+            return false
+        }
+
+        DebugLog.info(
+            DebugLog.accessibility,
+            "Menu action \(actionName) blocked because accessibility permission is missing; showing welcome guide"
+        )
+        welcomeWindowController.show()
+        rebuildMenu()
+        return true
+    }
+
+    private func menuItem(for entry: StatusMenuEntry, permissionGranted: Bool) -> NSMenuItem {
+        let enforcePermissionLock = permissionGranted == false
+
         switch entry.kind {
         case .separator:
             return .separator()
@@ -189,7 +206,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
                 keyEquivalent: ""
             )
             item.target = self
-            item.isEnabled = entry.isEnabled
+            item.isEnabled = enforcePermissionLock ? true : entry.isEnabled
             return item
         case .refresh:
             let item = NSMenuItem(
@@ -198,7 +215,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
                 keyEquivalent: "r"
             )
             item.target = self
-            item.isEnabled = entry.isEnabled
+            item.isEnabled = true
             return item
         case .windowAction(let action):
             let binding = settingsStore.hotKeyBinding(for: action)
@@ -209,7 +226,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             )
             item.target = self
             item.representedObject = action
-            item.isEnabled = entry.isEnabled
+            item.isEnabled = enforcePermissionLock ? false : entry.isEnabled
             item.keyEquivalentModifierMask = binding.menuModifierFlags
             return item
         case .help:
@@ -219,7 +236,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
                 keyEquivalent: ""
             )
             item.target = self
-            item.isEnabled = entry.isEnabled
+            item.isEnabled = enforcePermissionLock ? false : entry.isEnabled
             return item
         case .settings:
             let item = NSMenuItem(
@@ -228,7 +245,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
                 keyEquivalent: ","
             )
             item.target = self
-            item.isEnabled = entry.isEnabled
+            item.isEnabled = enforcePermissionLock ? false : entry.isEnabled
             item.keyEquivalentModifierMask = [.command]
             return item
         case .quit:
@@ -238,7 +255,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
                 keyEquivalent: "q"
             )
             item.target = self
-            item.isEnabled = entry.isEnabled
+            item.isEnabled = enforcePermissionLock ? false : entry.isEnabled
             return item
         }
     }

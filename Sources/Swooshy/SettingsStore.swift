@@ -65,6 +65,13 @@ final class SettingsStore {
         }
     }
 
+    var hasSeenWelcomeGuide: Bool {
+        didSet {
+            guard oldValue != hasSeenWelcomeGuide else { return }
+            userDefaults.set(hasSeenWelcomeGuide, forKey: Keys.hasSeenWelcomeGuide)
+        }
+    }
+
     #if DEBUG
     var debugLoggingEnabled: Bool {
         didSet {
@@ -133,6 +140,11 @@ final class SettingsStore {
         self.statusItemIcon = StatusItemIcon(
             storageValue: userDefaults.string(forKey: Keys.statusItemIcon)
         )
+        self.hasSeenWelcomeGuide = Self.boolValue(
+            forKey: Keys.hasSeenWelcomeGuide,
+            defaultValue: false,
+            in: userDefaults
+        )
         #if DEBUG
         self.debugLoggingEnabled = Self.boolValue(
             forKey: Keys.debugLoggingEnabled,
@@ -143,6 +155,29 @@ final class SettingsStore {
         self.hotKeyBindings = Self.decodeHotKeyBindings(from: userDefaults) ?? HotKeyBindings.defaults
         self.dockGestureBindings = Self.decodeDockGestureBindings(from: userDefaults) ?? DockGestureBindings.defaults
         self.titleBarGestureBindings = Self.decodeTitleBarGestureBindings(from: userDefaults) ?? TitleBarGestureBindings.defaults
+    }
+
+    static func resetPersistedConfiguration(in userDefaults: UserDefaults = .standard) {
+        var keysToReset = [
+            Keys.languageOverride,
+            Keys.hotKeysEnabled,
+            Keys.dockGesturesEnabled,
+            Keys.titleBarGesturesEnabled,
+            Keys.gestureHUDStyle,
+            Keys.statusItemIcon,
+            Keys.hotKeyBindings,
+            Keys.dockGestureBindings,
+            Keys.titleBarGestureBindings,
+            Keys.hasSeenWelcomeGuide,
+        ]
+
+        #if DEBUG
+        keysToReset.append(Keys.debugLoggingEnabled)
+        #endif
+
+        for key in keysToReset {
+            userDefaults.removeObject(forKey: key)
+        }
     }
 
     func localized(_ key: String) -> String {
@@ -287,6 +322,15 @@ final class SettingsStore {
         titleBarGestureBindings = TitleBarGestureBindings.defaults
     }
 
+    func consumeWelcomeGuidePresentationFlag() -> Bool {
+        guard hasSeenWelcomeGuide == false else {
+            return false
+        }
+
+        hasSeenWelcomeGuide = true
+        return true
+    }
+
     private func updateTitleBarGestureBinding(_ binding: TitleBarGestureBinding) {
         var newBindings = titleBarGestureBindings
 
@@ -404,6 +448,7 @@ final class SettingsStore {
         static let titleBarGesturesEnabled = "settings.titleBarGesturesEnabled"
         static let gestureHUDStyle = "settings.gestureHUDStyle"
         static let statusItemIcon = "settings.statusItemIcon"
+        static let hasSeenWelcomeGuide = "settings.hasSeenWelcomeGuide"
         #if DEBUG
         static let debugLoggingEnabled = "settings.debugLoggingEnabled"
         #endif

@@ -23,6 +23,18 @@
 "alert.about.title" = "How to Use Swooshy";
 "alert.about.message" = "Quick start:\n1. Click the menu bar icon and make sure Accessibility permission is granted.\n2. Open Settings… to customize gesture mappings and global hotkeys.\n3. Hover the pointer over a Dock item, then use two-finger gestures to control that app's windows.\n4. Hover the pointer over the frontmost window's title bar, then use two-finger gestures to control the current window.\n\nIf permissions or behavior are abnormal, remove Swooshy from Accessibility settings, grant permission again, then choose Refresh Permission State from the menu and try again.";
 
+"welcome.window.title" = "Welcome";
+"welcome.title" = "Welcome to Swooshy";
+"welcome.message" = "Before gestures and shortcuts work reliably, please complete a quick first-time setup.";
+"welcome.step.permission" = "Grant Accessibility permission when prompted so Swooshy can read and move windows.";
+"welcome.step.settings" = "Swooshy will then open Settings so you can review gesture mappings and shortcuts.";
+"welcome.permission.granted" = "Accessibility permission is granted.";
+"welcome.permission.missing" = "Accessibility permission has not been granted yet.";
+"welcome.grant_permission_action" = "Grant Permission";
+"welcome.open_settings_action" = "Open Settings";
+"welcome.primary_action" = "Grant Permission and Open Settings";
+"welcome.secondary_action" = "Later";
+
 "settings.window.title" = "Settings";
 "settings.section.general" = "General";
 "settings.section.gestures" = "Gestures";

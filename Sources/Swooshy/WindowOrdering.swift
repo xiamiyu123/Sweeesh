@@ -20,39 +20,52 @@ struct WindowOrdering {
         }
 
         let windowDescriptors = try windows.map(descriptor)
-        var unmatchedWindowIndices = Array(windows.indices)
+        let allWindowIndices = Array(windows.indices)
+        let normalizedWindowTitles = windowDescriptors.map { normalizedTitle($0.title) }
+        let normalizedOrderedTitles = orderedDescriptors.map { normalizedTitle($0.title) }
+        var unmatchedWindowIndexSet = Set(allWindowIndices)
         var orderedWindowIndices: [Int] = []
         orderedWindowIndices.reserveCapacity(windows.count)
 
-        for orderedDescriptor in orderedDescriptors {
+        for (orderedDescriptor, normalizedOrderedTitle) in zip(orderedDescriptors, normalizedOrderedTitles) {
             guard let bestMatch = bestMatchingWindowIndex(
-                among: unmatchedWindowIndices,
+                allWindowIndices: allWindowIndices,
+                unmatchedWindowIndexSet: unmatchedWindowIndexSet,
                 windowDescriptors: windowDescriptors,
-                orderedDescriptor: orderedDescriptor
+                normalizedWindowTitles: normalizedWindowTitles,
+                orderedDescriptor: orderedDescriptor,
+                normalizedOrderedTitle: normalizedOrderedTitle
             ) else {
                 continue
             }
 
             orderedWindowIndices.append(bestMatch)
-            unmatchedWindowIndices.removeAll { $0 == bestMatch }
+            unmatchedWindowIndexSet.remove(bestMatch)
         }
 
-        orderedWindowIndices.append(contentsOf: unmatchedWindowIndices)
+        orderedWindowIndices.append(
+            contentsOf: allWindowIndices.filter { unmatchedWindowIndexSet.contains($0) }
+        )
         return orderedWindowIndices.map { windows[$0] }
     }
 
     private func bestMatchingWindowIndex(
-        among unmatchedWindowIndices: [Int],
+        allWindowIndices: [Int],
+        unmatchedWindowIndexSet: Set<Int>,
         windowDescriptors: [WindowOrderDescriptor],
-        orderedDescriptor: WindowOrderDescriptor
+        normalizedWindowTitles: [String],
+        orderedDescriptor: WindowOrderDescriptor,
+        normalizedOrderedTitle: String
     ) -> Int? {
         var bestMatchIndex: Int?
         var bestScore = Int.min
 
-        for windowIndex in unmatchedWindowIndices {
+        for windowIndex in allWindowIndices where unmatchedWindowIndexSet.contains(windowIndex) {
             guard let score = matchScore(
                 windowDescriptor: windowDescriptors[windowIndex],
-                orderedDescriptor: orderedDescriptor
+                normalizedWindowTitle: normalizedWindowTitles[windowIndex],
+                orderedDescriptor: orderedDescriptor,
+                normalizedOrderedTitle: normalizedOrderedTitle
             ) else {
                 continue
             }
@@ -68,10 +81,10 @@ struct WindowOrdering {
 
     private func matchScore(
         windowDescriptor: WindowOrderDescriptor,
-        orderedDescriptor: WindowOrderDescriptor
+        normalizedWindowTitle: String,
+        orderedDescriptor: WindowOrderDescriptor,
+        normalizedOrderedTitle: String
     ) -> Int? {
-        let normalizedWindowTitle = normalizedTitle(windowDescriptor.title)
-        let normalizedOrderedTitle = normalizedTitle(orderedDescriptor.title)
         let titlesMatch = normalizedWindowTitle.isEmpty == false &&
             normalizedWindowTitle == normalizedOrderedTitle
 

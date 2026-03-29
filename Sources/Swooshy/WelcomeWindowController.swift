@@ -96,6 +96,7 @@ private final class WelcomeGuideViewModel: ObservableObject {
     let closeActionTitle: String
     let pageFormat: String
     let guideTitle: String
+    let nextPreviewTitle: String
     let pages: [Page]
 
     private let permissionManager: AccessibilityPermissionManaging
@@ -123,6 +124,7 @@ private final class WelcomeGuideViewModel: ObservableObject {
         self.closeActionTitle = settingsStore.localized("guide.close_action")
         self.pageFormat = settingsStore.localized("guide.page_format")
         self.guideTitle = settingsStore.localized("menu.help")
+        self.nextPreviewTitle = settingsStore.localized("guide.next_preview")
         self.permissionManager = permissionManager
         self.onOpenSettings = onOpenSettings
         self.onDismiss = onDismiss
@@ -340,6 +342,10 @@ private struct WelcomeGuideView: View {
 
             permissionStatus
 
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .overlay(alignment: .bottomTrailing) {
             tutorialPreview
         }
     }
@@ -372,21 +378,27 @@ private struct WelcomeGuideView: View {
 
     private var tutorialPreview: some View {
         VStack(alignment: .leading, spacing: 12) {
+            Text(viewModel.nextPreviewTitle)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+
             Text(viewModel.guideTitle)
                 .font(.headline)
 
             Text(viewModel.currentPage.kind == .welcome ? viewModel.pages[1].message : "")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
+                .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
 
-            HStack(spacing: 10) {
-                ForEach(["step1", "step2", "step3"], id: \.self) { imageName in
+            HStack(spacing: 8) {
+                ForEach(["step1", "step2"], id: \.self) { imageName in
                     GuideThumbnail(imageName: imageName)
                 }
             }
         }
         .padding(16)
+        .frame(width: 228, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(Color(nsColor: .controlBackgroundColor))
@@ -395,6 +407,8 @@ private struct WelcomeGuideView: View {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(Color.primary.opacity(0.08), lineWidth: 1)
         )
+        .padding(.trailing, 12)
+        .padding(.bottom, 12)
     }
 
     private var permissionStatus: some View {
@@ -419,16 +433,16 @@ private struct WelcomeGuideView: View {
 
     private var footer: some View {
         HStack {
-            if viewModel.isFirstPage == false {
-                Button(viewModel.previousActionTitle) {
-                    viewModel.goToPreviousPage()
-                }
+            Button(viewModel.closeActionTitle) {
+                viewModel.dismiss()
             }
 
             Spacer()
 
-            Button(viewModel.closeActionTitle) {
-                viewModel.dismiss()
+            if viewModel.isFirstPage == false {
+                Button(viewModel.previousActionTitle) {
+                    viewModel.goToPreviousPage()
+                }
             }
 
             if viewModel.currentPage.kind == .welcome {
@@ -481,6 +495,8 @@ private struct WelcomeGuideView: View {
 
 private struct GuideImageCard: View {
     let imageName: String
+    private let maxImageWidth: CGFloat = 360
+    private let maxImageHeight: CGFloat = 260
 
     var body: some View {
         Group {
@@ -488,39 +504,52 @@ private struct GuideImageCard: View {
                 Image(nsImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fit)
-                    .frame(maxWidth: .infinity)
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .frame(maxWidth: maxImageWidth, maxHeight: maxImageHeight)
+                    .padding(12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(Color(nsColor: .controlBackgroundColor))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                    )
             } else {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color(nsColor: .controlBackgroundColor))
-                    .frame(height: 220)
-                    .overlay {
-                        Text(imageName)
-                            .foregroundStyle(.secondary)
-                    }
+                Text(imageName)
+                    .foregroundStyle(.secondary)
+                    .frame(width: maxImageWidth, height: 180)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(Color(nsColor: .controlBackgroundColor))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .stroke(Color.primary.opacity(0.08), lineWidth: 1)
+                    )
             }
         }
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Color.primary.opacity(0.08), lineWidth: 1)
-        )
+        .frame(maxWidth: .infinity, alignment: .center)
     }
 }
 
 private struct GuideThumbnail: View {
     let imageName: String
+    private let width: CGFloat = 94
+    private let height: CGFloat = 58
 
     var body: some View {
-        Group {
+        ZStack {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor))
+
             if let image = guideImage(named: imageName) {
                 Image(nsImage: image)
                     .resizable()
-                    .aspectRatio(contentMode: .fill)
-            } else {
-                Color(nsColor: .controlBackgroundColor)
+                    .aspectRatio(contentMode: .fit)
+                    .frame(maxWidth: width - 10, maxHeight: height - 10)
             }
         }
-        .frame(width: 120, height: 74)
+        .frame(width: width, height: height)
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)

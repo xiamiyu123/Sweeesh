@@ -39,6 +39,7 @@
 "guide.previous_action" = "Back";
 "guide.next_action" = "Next";
 "guide.close_action" = "Close";
+"guide.next_preview" = "Next";
 
 "guide.page.dock_switch.title" = "Dock Gestures: Switch Windows for the Same App";
 "guide.page.dock_switch.message" = "When the pointer is hovering over an app icon in the Dock, you can switch between that app's windows directly.";

@@ -39,6 +39,7 @@
 "guide.previous_action" = "上一页";
 "guide.next_action" = "下一页";
 "guide.close_action" = "稍后再看";
+"guide.next_preview" = "下一步";
 
 "guide.page.dock_switch.title" = "Dock 图标手势：切换同应用窗口";
 "guide.page.dock_switch.message" = "当鼠标悬停在 Dock 上的应用图标时，可以直接对该应用的多个窗口进行切换。";

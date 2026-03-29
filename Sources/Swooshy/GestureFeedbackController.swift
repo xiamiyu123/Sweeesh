@@ -99,7 +99,10 @@ final class GestureFeedbackController: GestureFeedbackPresenting {
         dismissTask = Task { [weak self] in
             do {
                 try await Task.sleep(nanoseconds: delay)
+            } catch is CancellationError {
+                return
             } catch {
+                DebugLog.debug(DebugLog.dock, "HUD dismiss delay task failed unexpectedly: \(error.localizedDescription)")
                 return
             }
             guard !Task.isCancelled else { return }

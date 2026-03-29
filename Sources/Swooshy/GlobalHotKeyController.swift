@@ -83,6 +83,11 @@ final class GlobalHotKeyController {
             return
         }
 
+        guard eventHandlerRef != nil else {
+            DebugLog.error(DebugLog.hotkeys, "Skipping global hotkey registration because event handler is unavailable")
+            return
+        }
+
         DebugLog.info(DebugLog.hotkeys, "Registering global hotkeys")
         registerHotKeys()
     }

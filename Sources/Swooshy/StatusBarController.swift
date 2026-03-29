@@ -51,7 +51,10 @@ final class StatusBarController: NSObject, NSMenuDelegate {
     }
 
     private func configureStatusItem() {
-        guard let button = statusItem.button else { return }
+        guard let button = statusItem.button else {
+            DebugLog.error(DebugLog.app, "Status item button is unavailable; menu icon setup skipped")
+            return
+        }
 
         if let image = NSImage(
             systemSymbolName: "rectangle.3.group",

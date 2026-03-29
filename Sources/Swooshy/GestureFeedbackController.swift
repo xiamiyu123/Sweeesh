@@ -94,30 +94,21 @@ final class GestureFeedbackController: GestureFeedbackPresenting {
         guard currentStyle != style || panel.contentView == nil else { return }
 
         currentStyle = style
+        panel.hasShadow = style != .minimal
         currentPanelSize = panelSize(for: style)
         panel.setContentSize(currentPanelSize)
 
-        let contentRoot: NSView
-        if style == .minimal {
-            let transparentView = NSView(frame: NSRect(origin: .zero, size: currentPanelSize))
-            transparentView.wantsLayer = true
-            transparentView.layer?.backgroundColor = NSColor.clear.cgColor
-            transparentView.translatesAutoresizingMaskIntoConstraints = false
-            contentRoot = transparentView
-        } else {
-            let visualEffectView = NSVisualEffectView(frame: NSRect(origin: .zero, size: currentPanelSize))
-            visualEffectView.material = material(for: style)
-            visualEffectView.blendingMode = blendingMode(for: style)
-            visualEffectView.state = .active
-            visualEffectView.wantsLayer = true
-            visualEffectView.layer?.cornerRadius = cornerRadius(for: style)
-            visualEffectView.layer?.masksToBounds = true
-            visualEffectView.layer?.backgroundColor = backgroundColor(for: style).cgColor
-            visualEffectView.layer?.borderColor = borderColor(for: style).cgColor
-            visualEffectView.layer?.borderWidth = borderWidth(for: style)
-            visualEffectView.translatesAutoresizingMaskIntoConstraints = false
-            contentRoot = visualEffectView
-        }
+        let contentRoot = NSVisualEffectView(frame: NSRect(origin: .zero, size: currentPanelSize))
+        contentRoot.material = material(for: style)
+        contentRoot.blendingMode = blendingMode(for: style)
+        contentRoot.state = .active
+        contentRoot.wantsLayer = true
+        contentRoot.layer?.cornerRadius = cornerRadius(for: style)
+        contentRoot.layer?.masksToBounds = true
+        contentRoot.layer?.backgroundColor = backgroundColor(for: style).cgColor
+        contentRoot.layer?.borderColor = borderColor(for: style).cgColor
+        contentRoot.layer?.borderWidth = borderWidth(for: style)
+        contentRoot.translatesAutoresizingMaskIntoConstraints = false
 
         messageLabel.font = .systemFont(ofSize: 12, weight: .medium)
         messageLabel.textColor = .labelColor
@@ -190,15 +181,20 @@ final class GestureFeedbackController: GestureFeedbackPresenting {
                 glyphBadgeView.heightAnchor.constraint(equalToConstant: 24),
                 glyphView.centerXAnchor.constraint(equalTo: glyphBadgeView.centerXAnchor),
                 glyphView.centerYAnchor.constraint(equalTo: glyphBadgeView.centerYAnchor),
-                glyphView.widthAnchor.constraint(equalToConstant: 20),
-                glyphView.heightAnchor.constraint(equalToConstant: 20),
+                glyphView.widthAnchor.constraint(equalToConstant: 22),
+                glyphView.heightAnchor.constraint(equalToConstant: 22),
             ])
         case .minimal:
-            contentRoot.addSubview(glyphView)
+            glyphBadgeView.addSubview(glyphView)
+            contentRoot.addSubview(glyphBadgeView)
 
             NSLayoutConstraint.activate([
-                glyphView.centerXAnchor.constraint(equalTo: contentRoot.centerXAnchor),
-                glyphView.centerYAnchor.constraint(equalTo: contentRoot.centerYAnchor),
+                glyphBadgeView.centerXAnchor.constraint(equalTo: contentRoot.centerXAnchor),
+                glyphBadgeView.centerYAnchor.constraint(equalTo: contentRoot.centerYAnchor),
+                glyphBadgeView.widthAnchor.constraint(equalToConstant: 20),
+                glyphBadgeView.heightAnchor.constraint(equalToConstant: 20),
+                glyphView.centerXAnchor.constraint(equalTo: glyphBadgeView.centerXAnchor),
+                glyphView.centerYAnchor.constraint(equalTo: glyphBadgeView.centerYAnchor),
                 glyphView.widthAnchor.constraint(equalToConstant: 18),
                 glyphView.heightAnchor.constraint(equalToConstant: 18),
             ])
@@ -250,7 +246,7 @@ final class GestureFeedbackController: GestureFeedbackPresenting {
         case .elegant:
             return NSSize(width: 182, height: 40)
         case .minimal:
-            return NSSize(width: 48, height: 48)
+            return NSSize(width: 40, height: 40)
         }
     }
 
@@ -261,33 +257,27 @@ final class GestureFeedbackController: GestureFeedbackPresenting {
         case .elegant:
             return 12
         case .minimal:
-            return 0
+            return 10
         }
     }
 
     private func backgroundColor(for style: GestureHUDStyle) -> NSColor {
         switch style {
-        case .classic, .elegant:
-            return .clear
-        case .minimal:
+        case .classic, .elegant, .minimal:
             return .clear
         }
     }
 
     private func borderColor(for style: GestureHUDStyle) -> NSColor {
         switch style {
-        case .classic, .elegant:
-            return .clear
-        case .minimal:
+        case .classic, .elegant, .minimal:
             return .clear
         }
     }
 
     private func borderWidth(for style: GestureHUDStyle) -> CGFloat {
         switch style {
-        case .classic, .elegant:
-            return 0
-        case .minimal:
+        case .classic, .elegant, .minimal:
             return 0
         }
     }
@@ -321,36 +311,28 @@ final class GestureFeedbackController: GestureFeedbackPresenting {
 
     private func glyphSecondaryColor(for style: GestureHUDStyle) -> NSColor {
         switch style {
-        case .classic, .elegant:
+        case .classic, .elegant, .minimal:
             return NSColor.labelColor.withAlphaComponent(0.16)
-        case .minimal:
-            return NSColor.black.withAlphaComponent(0.44)
         }
     }
 
     private func glyphBadgeBackgroundColor(for style: GestureHUDStyle) -> NSColor {
         switch style {
-        case .classic:
-            return .clear
-        case .elegant, .minimal:
+        case .classic, .elegant, .minimal:
             return .clear
         }
     }
 
     private func glyphBadgeBorderColor(for style: GestureHUDStyle) -> NSColor {
         switch style {
-        case .classic:
-            return .clear
-        case .elegant, .minimal:
+        case .classic, .elegant, .minimal:
             return .clear
         }
     }
 
     private func glyphBadgeBorderWidth(for style: GestureHUDStyle) -> CGFloat {
         switch style {
-        case .classic:
-            return 0
-        case .elegant, .minimal:
+        case .classic, .elegant, .minimal:
             return 0
         }
     }
@@ -359,9 +341,7 @@ final class GestureFeedbackController: GestureFeedbackPresenting {
         switch style {
         case .classic:
             return 0
-        case .minimal:
-            return 0
-        case .elegant:
+        case .elegant, .minimal:
             return 8
         }
     }
@@ -379,9 +359,7 @@ final class GestureFeedbackController: GestureFeedbackPresenting {
         switch style {
         case .classic:
             return 0
-        case .minimal:
-            return 5.8
-        case .elegant:
+        case .elegant, .minimal:
             return 4.8
         }
     }
@@ -434,7 +412,11 @@ private final class GestureGlyphView: NSView {
     }
 
     private func drawMinimalGlyph(in rect: NSRect) {
-        let glyphRect = sanitizedRect(from: rect.insetBy(dx: 2, dy: 2), minimumSize: 8)
+        let strokePadding = max(glowLineWidth, lineWidth) / 2
+        let glyphRect = sanitizedRect(
+            from: rect.insetBy(dx: strokePadding + 0.5, dy: strokePadding + 0.5),
+            minimumSize: 8
+        )
         guard glyphRect.isEmpty == false else { return }
 
         if secondaryColor.alphaComponent > 0.01, glowLineWidth > lineWidth {
@@ -474,32 +456,57 @@ private final class GestureGlyphView: NSView {
 
         switch gesture {
         case .swipeLeft:
-            addLine(to: path, from: CGPoint(x: rect.maxX, y: rect.midY), to: CGPoint(x: rect.minX + 4, y: rect.midY))
-            addLine(to: path, from: CGPoint(x: rect.minX + 4, y: rect.midY), to: CGPoint(x: rect.minX + 10, y: rect.midY - 5))
-            addLine(to: path, from: CGPoint(x: rect.minX + 4, y: rect.midY), to: CGPoint(x: rect.minX + 10, y: rect.midY + 5))
+            let tip = point(in: rect, x: 0.18, y: 0.5)
+            let tail = point(in: rect, x: 0.84, y: 0.5)
+            let wingTop = point(in: rect, x: 0.42, y: 0.26)
+            let wingBottom = point(in: rect, x: 0.42, y: 0.74)
+            addLine(to: path, from: tail, to: tip)
+            addLine(to: path, from: tip, to: wingTop)
+            addLine(to: path, from: tip, to: wingBottom)
         case .swipeRight:
-            addLine(to: path, from: CGPoint(x: rect.minX, y: rect.midY), to: CGPoint(x: rect.maxX - 4, y: rect.midY))
-            addLine(to: path, from: CGPoint(x: rect.maxX - 4, y: rect.midY), to: CGPoint(x: rect.maxX - 10, y: rect.midY - 5))
-            addLine(to: path, from: CGPoint(x: rect.maxX - 4, y: rect.midY), to: CGPoint(x: rect.maxX - 10, y: rect.midY + 5))
+            let tip = point(in: rect, x: 0.82, y: 0.5)
+            let tail = point(in: rect, x: 0.16, y: 0.5)
+            let wingTop = point(in: rect, x: 0.58, y: 0.26)
+            let wingBottom = point(in: rect, x: 0.58, y: 0.74)
+            addLine(to: path, from: tail, to: tip)
+            addLine(to: path, from: tip, to: wingTop)
+            addLine(to: path, from: tip, to: wingBottom)
         case .swipeUp:
-            addLine(to: path, from: CGPoint(x: rect.midX, y: rect.maxY), to: CGPoint(x: rect.midX, y: rect.minY + 4))
-            addLine(to: path, from: CGPoint(x: rect.midX, y: rect.minY + 4), to: CGPoint(x: rect.midX - 5, y: rect.minY + 10))
-            addLine(to: path, from: CGPoint(x: rect.midX, y: rect.minY + 4), to: CGPoint(x: rect.midX + 5, y: rect.minY + 10))
+            let tip = point(in: rect, x: 0.5, y: 0.18)
+            let tail = point(in: rect, x: 0.5, y: 0.84)
+            let wingLeft = point(in: rect, x: 0.26, y: 0.42)
+            let wingRight = point(in: rect, x: 0.74, y: 0.42)
+            addLine(to: path, from: tail, to: tip)
+            addLine(to: path, from: tip, to: wingLeft)
+            addLine(to: path, from: tip, to: wingRight)
         case .swipeDown:
-            addLine(to: path, from: CGPoint(x: rect.midX, y: rect.minY), to: CGPoint(x: rect.midX, y: rect.maxY - 4))
-            addLine(to: path, from: CGPoint(x: rect.midX, y: rect.maxY - 4), to: CGPoint(x: rect.midX - 5, y: rect.maxY - 10))
-            addLine(to: path, from: CGPoint(x: rect.midX, y: rect.maxY - 4), to: CGPoint(x: rect.midX + 5, y: rect.maxY - 10))
+            let tip = point(in: rect, x: 0.5, y: 0.82)
+            let tail = point(in: rect, x: 0.5, y: 0.16)
+            let wingLeft = point(in: rect, x: 0.26, y: 0.58)
+            let wingRight = point(in: rect, x: 0.74, y: 0.58)
+            addLine(to: path, from: tail, to: tip)
+            addLine(to: path, from: tip, to: wingLeft)
+            addLine(to: path, from: tip, to: wingRight)
         case .pinchIn:
-            addLine(to: path, from: CGPoint(x: rect.minX + 1, y: rect.minY + 1), to: CGPoint(x: rect.midX - 2, y: rect.midY - 2))
-            addLine(to: path, from: CGPoint(x: rect.maxX - 1, y: rect.minY + 1), to: CGPoint(x: rect.midX + 2, y: rect.midY - 2))
-            addLine(to: path, from: CGPoint(x: rect.minX + 1, y: rect.maxY - 1), to: CGPoint(x: rect.midX - 2, y: rect.midY + 2))
-            addLine(to: path, from: CGPoint(x: rect.maxX - 1, y: rect.maxY - 1), to: CGPoint(x: rect.midX + 2, y: rect.midY + 2))
+            addLine(to: path, from: point(in: rect, x: 0.12, y: 0.18), to: point(in: rect, x: 0.38, y: 0.4))
+            addLine(to: path, from: point(in: rect, x: 0.88, y: 0.18), to: point(in: rect, x: 0.62, y: 0.4))
+            addLine(to: path, from: point(in: rect, x: 0.12, y: 0.82), to: point(in: rect, x: 0.38, y: 0.6))
+            addLine(to: path, from: point(in: rect, x: 0.88, y: 0.82), to: point(in: rect, x: 0.62, y: 0.6))
         }
 
         let bezierPath = NSBezierPath(cgPath: path)
         bezierPath.lineCapStyle = .round
         bezierPath.lineJoinStyle = .round
         bezierPath.lineWidth = lineWidth
+
+        let pathBounds = bezierPath.bounds
+        guard pathBounds.isEmpty == false else { return bezierPath }
+
+        let transform = AffineTransform(
+            translationByX: rect.midX - pathBounds.midX,
+            byY: rect.midY - pathBounds.midY
+        )
+        bezierPath.transform(using: transform)
         return bezierPath
     }
 
@@ -533,6 +540,13 @@ private final class GestureGlyphView: NSView {
 
         path.move(to: start)
         path.addLine(to: end)
+    }
+
+    private func point(in rect: NSRect, x: CGFloat, y: CGFloat) -> CGPoint {
+        CGPoint(
+            x: rect.minX + (rect.width * x),
+            y: rect.minY + (rect.height * y)
+        )
     }
 }
 

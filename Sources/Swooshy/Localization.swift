@@ -1,6 +1,8 @@
 import Foundation
 
 enum L10n {
+    private static let resourceBundleName = "Swooshy_Swooshy.bundle"
+
     static func string(
         _ key: String,
         localeIdentifier: String? = nil,
@@ -27,10 +29,10 @@ enum L10n {
                 for: localeIdentifier,
                 preferredLanguages: preferredLanguages
             ),
-            let path = Bundle.module.path(forResource: localization, ofType: "lproj"),
+            let path = resourcesBundle.path(forResource: localization, ofType: "lproj"),
             let bundle = Bundle(path: path)
         else {
-            return .module
+            return resourcesBundle
         }
 
         return bundle
@@ -46,14 +48,14 @@ enum L10n {
         )
 
         if let preferredLocalization = Bundle.preferredLocalizations(
-            from: Bundle.module.localizations,
+            from: resourcesBundle.localizations,
             forPreferences: preferences
         ).first {
             return preferredLocalization
         }
 
         for candidate in preferences {
-            if let match = Bundle.module.localizations.first(where: {
+            if let match = resourcesBundle.localizations.first(where: {
                 $0.compare(candidate, options: [.caseInsensitive, .diacriticInsensitive]) == .orderedSame
             }) {
                 return match
@@ -87,5 +89,20 @@ enum L10n {
                 return candidate
             }
         }
+    }
+
+    private static var resourcesBundle: Bundle {
+        let bundleCandidates: [URL?] = [
+            Bundle.main.resourceURL?.appendingPathComponent(resourceBundleName),
+            Bundle.main.bundleURL.appendingPathComponent(resourceBundleName).absoluteURL,
+        ]
+
+        for candidate in bundleCandidates.compactMap({ $0 }) {
+            if let bundle = Bundle(url: candidate) {
+                return bundle
+            }
+        }
+
+        return .module
     }
 }

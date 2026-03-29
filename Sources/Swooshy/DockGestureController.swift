@@ -68,6 +68,8 @@ final class DockGestureController {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor in
+                self?.dockProbe.clearCache()
+                self?.titleBarProbe.clearCache()
                 self?.syncMonitoring()
             }
         }
@@ -83,6 +85,8 @@ final class DockGestureController {
         monitoringState = state
         dockRecognizer = DockGestureRecognizer()
         titleBarRecognizer = DockGestureRecognizer()
+        dockProbe.clearCache()
+        titleBarProbe.clearCache()
         pendingTouchFrame = nil
         isProcessingTouchFrame = false
 
@@ -157,7 +161,8 @@ final class DockGestureController {
 #endif
 
         if dockGesturesEnabled, let dockEvent = dockRecognizer.process(frame: frame, hoveredApplication: hoveredDockApplication) {
-            handleDockGestureEvent(dockEvent)
+            let anchorPoint = mouseLocation ?? NSEvent.mouseLocation
+            handleDockGestureEvent(dockEvent, anchorPoint: anchorPoint)
             return
         }
 
@@ -165,10 +170,11 @@ final class DockGestureController {
             return
         }
 
-        handleTitleBarGestureEvent(titleBarEvent)
+        let anchorPoint = mouseLocation ?? NSEvent.mouseLocation
+        handleTitleBarGestureEvent(titleBarEvent, anchorPoint: anchorPoint)
     }
 
-    private func handleDockGestureEvent(_ event: DockGestureEvent) {
+    private func handleDockGestureEvent(_ event: DockGestureEvent, anchorPoint: CGPoint) {
         do {
             let action = settingsStore.dockGestureAction(for: event.gesture)
             let application = event.application
@@ -176,7 +182,7 @@ final class DockGestureController {
                 gesture: event.gesture,
                 gestureTitle: event.gesture.title(preferredLanguages: settingsStore.preferredLanguages),
                 actionTitle: action.title(preferredLanguages: settingsStore.preferredLanguages),
-                anchor: NSEvent.mouseLocation
+                anchor: anchorPoint
             )
             DebugLog.info(
                 DebugLog.dock,
@@ -205,7 +211,7 @@ final class DockGestureController {
         }
     }
 
-    private func handleTitleBarGestureEvent(_ event: DockGestureEvent) {
+    private func handleTitleBarGestureEvent(_ event: DockGestureEvent, anchorPoint: CGPoint) {
         guard
             let frontmostApplication = NSWorkspace.shared.frontmostApplication,
             frontmostApplication.processIdentifier == event.application.processIdentifier
@@ -223,12 +229,11 @@ final class DockGestureController {
         }
 
         do {
-            let mouseLocation = NSEvent.mouseLocation
             gestureFeedbackPresenter.show(
                 gesture: event.gesture,
                 gestureTitle: event.gesture.title(preferredLanguages: settingsStore.preferredLanguages),
                 actionTitle: action.title(preferredLanguages: settingsStore.preferredLanguages),
-                anchor: mouseLocation
+                anchor: anchorPoint
             )
             DebugLog.info(
                 DebugLog.dock,
@@ -237,7 +242,7 @@ final class DockGestureController {
             try windowManager.perform(
                 action,
                 layoutEngine: layoutEngine,
-                preferredAppKitPoint: mouseLocation
+                preferredAppKitPoint: anchorPoint
             )
         } catch let error as WindowManagerError {
             handleWindowManagerError(error)
@@ -334,6 +339,12 @@ private final class TitleBarAccessibilityProbe {
         let expiresAt: Date
     }
 
+    func clearCache() {
+        cachedHitRegion = nil
+        lastProbeLogAt = .distantPast
+        lastProbeLogKey = ""
+    }
+
     func hoveredApplication(at appKitPoint: CGPoint) -> DockApplicationTarget? {
         let now = Date()
 
@@ -420,25 +431,17 @@ private final class TitleBarAccessibilityProbe {
     }
 
     private func focusedOrMainWindow(in appElement: AXUIElement) -> AXUIElement? {
-        if let focusedWindow = elementAttribute(kAXFocusedWindowAttribute as CFString, from: appElement) {
+        if let focusedWindow = AXAttributeReader.element(kAXFocusedWindowAttribute as CFString, from: appElement) {
             return focusedWindow
         }
 
-        return elementAttribute(kAXMainWindowAttribute as CFString, from: appElement)
-    }
-
-    private func elementAttribute(_ attribute: CFString, from element: AXUIElement) -> AXUIElement? {
-        var value: CFTypeRef?
-        let error = AXUIElementCopyAttributeValue(element, attribute, &value)
-        guard error == .success, let value else { return nil }
-        guard CFGetTypeID(value) == AXUIElementGetTypeID() else { return nil }
-        return unsafeDowncast(value, to: AXUIElement.self)
+        return AXAttributeReader.element(kAXMainWindowAttribute as CFString, from: appElement)
     }
 
     private func appKitFrame(of window: AXUIElement) -> CGRect? {
         guard
-            let axPosition = pointAttribute(kAXPositionAttribute as CFString, from: window),
-            let axSize = sizeAttribute(kAXSizeAttribute as CFString, from: window)
+            let axPosition = AXAttributeReader.point(kAXPositionAttribute as CFString, from: window),
+            let axSize = AXAttributeReader.size(kAXSizeAttribute as CFString, from: window)
         else {
             return nil
         }
@@ -468,19 +471,7 @@ private final class TitleBarAccessibilityProbe {
     }
 
     private func isFullScreen(_ window: AXUIElement) -> Bool {
-        var value: CFTypeRef?
-        let error = AXUIElementCopyAttributeValue(window, "AXFullScreen" as CFString, &value)
-        guard error == .success, let value else { return false }
-
-        if let boolValue = value as? Bool {
-            return boolValue
-        }
-
-        if let numberValue = value as? NSNumber {
-            return numberValue.boolValue
-        }
-
-        return false
+        AXAttributeReader.bool("AXFullScreen" as CFString, from: window) ?? false
     }
 
     private func logProbeIfNeeded(key: String, message: () -> String) {
@@ -492,34 +483,6 @@ private final class TitleBarAccessibilityProbe {
         lastProbeLogKey = key
         lastProbeLogAt = now
         DebugLog.debug(DebugLog.dock, message())
-    }
-
-    private func pointAttribute(_ attribute: CFString, from element: AXUIElement) -> CGPoint? {
-        var value: CFTypeRef?
-        let error = AXUIElementCopyAttributeValue(element, attribute, &value)
-        guard error == .success, let axValue = value else { return nil }
-
-        guard CFGetTypeID(axValue) == AXValueGetTypeID() else { return nil }
-        let pointValue = unsafeDowncast(axValue, to: AXValue.self)
-        guard AXValueGetType(pointValue) == .cgPoint else { return nil }
-
-        var point = CGPoint.zero
-        guard AXValueGetValue(pointValue, .cgPoint, &point) else { return nil }
-        return point
-    }
-
-    private func sizeAttribute(_ attribute: CFString, from element: AXUIElement) -> CGSize? {
-        var value: CFTypeRef?
-        let error = AXUIElementCopyAttributeValue(element, attribute, &value)
-        guard error == .success, let axValue = value else { return nil }
-
-        guard CFGetTypeID(axValue) == AXValueGetTypeID() else { return nil }
-        let sizeValue = unsafeDowncast(axValue, to: AXValue.self)
-        guard AXValueGetType(sizeValue) == .cgSize else { return nil }
-
-        var size = CGSize.zero
-        guard AXValueGetValue(sizeValue, .cgSize, &size) else { return nil }
-        return size
     }
 }
 
@@ -551,6 +514,15 @@ private final class DockAccessibilityProbe {
         let application: NSRunningApplication
         let aliases: [String]
         let normalizedAliases: [String]
+    }
+
+    func clearCache() {
+        cachedSnapshot = nil
+        cachedHoverHit = nil
+#if DEBUG
+        lastProbeLogAt = .distantPast
+        lastProbeLogKey = ""
+#endif
     }
 
     func hoveredApplication(at appKitPoint: CGPoint) -> DockApplicationTarget? {
@@ -639,7 +611,7 @@ private final class DockAccessibilityProbe {
         var qualityScoreCache: [pid_t: Int] = [:]
 
         for item in childElements(attribute: kAXChildrenAttribute as CFString, from: dockList) {
-            guard let itemName = stringAttribute(kAXTitleAttribute as CFString, from: item) else {
+            guard let itemName = AXAttributeReader.string(kAXTitleAttribute as CFString, from: item) else {
                 continue
             }
 
@@ -654,8 +626,8 @@ private final class DockAccessibilityProbe {
             let matchedApplication = matchedRecord.application
 
             guard
-                let axPosition = pointAttribute(kAXPositionAttribute as CFString, from: item),
-                let axSize = sizeAttribute(kAXSizeAttribute as CFString, from: item)
+                let axPosition = AXAttributeReader.point(kAXPositionAttribute as CFString, from: item),
+                let axSize = AXAttributeReader.size(kAXSizeAttribute as CFString, from: item)
             else {
                 continue
             }
@@ -790,14 +762,7 @@ private final class DockAccessibilityProbe {
 
     private func hasAnyWindow(for application: NSRunningApplication) -> Bool {
         let appElement = AXUIElementCreateApplication(application.processIdentifier)
-        var value: CFTypeRef?
-        let error = AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &value)
-
-        guard error == .success, let windows = value as? [AnyObject] else {
-            return false
-        }
-
-        return windows.isEmpty == false
+        return AXAttributeReader.elements(kAXWindowsAttribute as CFString, from: appElement).isEmpty == false
     }
 
     private func logProbeIfNeeded(key: String, message: () -> String) {
@@ -852,41 +817,6 @@ private final class DockAccessibilityProbe {
     private func childElement(attribute: CFString, from element: AXUIElement) -> [AXUIElement]? {
         let children = childElements(attribute: attribute, from: element)
         return children.isEmpty ? nil : children
-    }
-
-    private func stringAttribute(_ attribute: CFString, from element: AXUIElement) -> String? {
-        var value: CFTypeRef?
-        let error = AXUIElementCopyAttributeValue(element, attribute, &value)
-        guard error == .success else { return nil }
-        return value as? String
-    }
-
-    private func pointAttribute(_ attribute: CFString, from element: AXUIElement) -> CGPoint? {
-        var value: CFTypeRef?
-        let error = AXUIElementCopyAttributeValue(element, attribute, &value)
-        guard error == .success, let axValue = value else { return nil }
-
-        guard CFGetTypeID(axValue) == AXValueGetTypeID() else { return nil }
-        let pointValue = unsafeDowncast(axValue, to: AXValue.self)
-        guard AXValueGetType(pointValue) == .cgPoint else { return nil }
-
-        var point = CGPoint.zero
-        guard AXValueGetValue(pointValue, .cgPoint, &point) else { return nil }
-        return point
-    }
-
-    private func sizeAttribute(_ attribute: CFString, from element: AXUIElement) -> CGSize? {
-        var value: CFTypeRef?
-        let error = AXUIElementCopyAttributeValue(element, attribute, &value)
-        guard error == .success, let axValue = value else { return nil }
-
-        guard CFGetTypeID(axValue) == AXValueGetTypeID() else { return nil }
-        let sizeValue = unsafeDowncast(axValue, to: AXValue.self)
-        guard AXValueGetType(sizeValue) == .cgSize else { return nil }
-
-        var size = CGSize.zero
-        guard AXValueGetValue(sizeValue, .cgSize, &size) else { return nil }
-        return size
     }
 
     private func logMissIfNeeded(at appKitPoint: CGPoint, snapshot: DockHoverSnapshot) {

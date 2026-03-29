@@ -29,6 +29,25 @@ final class GestureFeedbackController: GestureFeedbackPresenting {
     private let sideMargin: CGFloat = 10
     private let dismissalDelay: UInt64 = 700_000_000
 
+    private struct StyleConfiguration {
+        let panelSize: NSSize
+        let cornerRadius: CGFloat
+        let material: NSVisualEffectView.Material
+        let blendingMode: NSVisualEffectView.BlendingMode
+        let backgroundColor: NSColor
+        let borderColor: NSColor
+        let borderWidth: CGFloat
+        let titleFontSize: CGFloat
+        let glyphColor: NSColor
+        let glyphSecondaryColor: NSColor
+        let glyphLineWidth: CGFloat
+        let glyphGlowLineWidth: CGFloat
+        let glyphBadgeBackgroundColor: NSColor
+        let glyphBadgeBorderColor: NSColor
+        let glyphBadgeBorderWidth: CGFloat
+        let glyphBadgeCornerRadius: CGFloat
+    }
+
     init(settingsStore: SettingsStore) {
         self.settingsStore = settingsStore
         panel = NSPanel(
@@ -92,21 +111,22 @@ final class GestureFeedbackController: GestureFeedbackPresenting {
     private func configureContent(for style: GestureHUDStyle) {
         guard currentStyle != style || panel.contentView == nil else { return }
 
+        let configuration = styleConfiguration(for: style)
         currentStyle = style
         panel.hasShadow = style != .minimal
-        currentPanelSize = panelSize(for: style)
+        currentPanelSize = configuration.panelSize
         panel.setContentSize(currentPanelSize)
 
         let contentRoot = NSVisualEffectView(frame: NSRect(origin: .zero, size: currentPanelSize))
-        contentRoot.material = material(for: style)
-        contentRoot.blendingMode = blendingMode(for: style)
+        contentRoot.material = configuration.material
+        contentRoot.blendingMode = configuration.blendingMode
         contentRoot.state = .active
         contentRoot.wantsLayer = true
-        contentRoot.layer?.cornerRadius = cornerRadius(for: style)
+        contentRoot.layer?.cornerRadius = configuration.cornerRadius
         contentRoot.layer?.masksToBounds = true
-        contentRoot.layer?.backgroundColor = backgroundColor(for: style).cgColor
-        contentRoot.layer?.borderColor = borderColor(for: style).cgColor
-        contentRoot.layer?.borderWidth = borderWidth(for: style)
+        contentRoot.layer?.backgroundColor = configuration.backgroundColor.cgColor
+        contentRoot.layer?.borderColor = configuration.borderColor.cgColor
+        contentRoot.layer?.borderWidth = configuration.borderWidth
         contentRoot.translatesAutoresizingMaskIntoConstraints = false
 
         messageLabel.font = .systemFont(ofSize: 12, weight: .medium)
@@ -116,7 +136,7 @@ final class GestureFeedbackController: GestureFeedbackPresenting {
         messageLabel.lineBreakMode = .byTruncatingMiddle
         messageLabel.translatesAutoresizingMaskIntoConstraints = false
 
-        titleLabel.font = .systemFont(ofSize: style == .elegant ? 12 : 13, weight: .semibold)
+        titleLabel.font = .systemFont(ofSize: configuration.titleFontSize, weight: .semibold)
         titleLabel.textColor = .labelColor
         titleLabel.maximumNumberOfLines = 1
         titleLabel.lineBreakMode = .byTruncatingTail
@@ -130,18 +150,18 @@ final class GestureFeedbackController: GestureFeedbackPresenting {
 
         glyphView.translatesAutoresizingMaskIntoConstraints = false
         glyphView.glyphStyle = .minimal
-        glyphView.primaryColor = glyphColor(for: style)
-        glyphView.secondaryColor = glyphSecondaryColor(for: style)
-        glyphView.lineWidth = glyphLineWidth(for: style)
-        glyphView.glowLineWidth = glyphGlowLineWidth(for: style)
+        glyphView.primaryColor = configuration.glyphColor
+        glyphView.secondaryColor = configuration.glyphSecondaryColor
+        glyphView.lineWidth = configuration.glyphLineWidth
+        glyphView.glowLineWidth = configuration.glyphGlowLineWidth
 
         glyphBadgeView.translatesAutoresizingMaskIntoConstraints = false
         glyphBadgeView.wantsLayer = true
-        glyphBadgeView.layer?.cornerRadius = glyphBadgeCornerRadius(for: style)
+        glyphBadgeView.layer?.cornerRadius = configuration.glyphBadgeCornerRadius
         glyphBadgeView.layer?.masksToBounds = true
-        glyphBadgeView.layer?.backgroundColor = glyphBadgeBackgroundColor(for: style).cgColor
-        glyphBadgeView.layer?.borderColor = glyphBadgeBorderColor(for: style).cgColor
-        glyphBadgeView.layer?.borderWidth = glyphBadgeBorderWidth(for: style)
+        glyphBadgeView.layer?.backgroundColor = configuration.glyphBadgeBackgroundColor.cgColor
+        glyphBadgeView.layer?.borderColor = configuration.glyphBadgeBorderColor.cgColor
+        glyphBadgeView.layer?.borderWidth = configuration.glyphBadgeBorderWidth
         glyphBadgeView.subviews.forEach { $0.removeFromSuperview() }
 
         switch style {
@@ -241,128 +261,65 @@ final class GestureFeedbackController: GestureFeedbackPresenting {
         }
     }
 
-    private func panelSize(for style: GestureHUDStyle) -> NSSize {
+    private func styleConfiguration(for style: GestureHUDStyle) -> StyleConfiguration {
         switch style {
         case .classic:
-            return NSSize(width: 208, height: 42)
+            return StyleConfiguration(
+                panelSize: NSSize(width: 208, height: 42),
+                cornerRadius: 14,
+                material: .hudWindow,
+                blendingMode: .behindWindow,
+                backgroundColor: .clear,
+                borderColor: .clear,
+                borderWidth: 0,
+                titleFontSize: 13,
+                glyphColor: NSColor.labelColor.withAlphaComponent(0.9),
+                glyphSecondaryColor: NSColor.labelColor.withAlphaComponent(0.16),
+                glyphLineWidth: 2.2,
+                glyphGlowLineWidth: 0,
+                glyphBadgeBackgroundColor: .clear,
+                glyphBadgeBorderColor: .clear,
+                glyphBadgeBorderWidth: 0,
+                glyphBadgeCornerRadius: 0
+            )
         case .elegant:
-            return NSSize(width: 182, height: 40)
+            return StyleConfiguration(
+                panelSize: NSSize(width: 182, height: 40),
+                cornerRadius: 12,
+                material: .hudWindow,
+                blendingMode: .behindWindow,
+                backgroundColor: .clear,
+                borderColor: .clear,
+                borderWidth: 0,
+                titleFontSize: 12,
+                glyphColor: NSColor.white.withAlphaComponent(0.95),
+                glyphSecondaryColor: NSColor.labelColor.withAlphaComponent(0.16),
+                glyphLineWidth: 2.2,
+                glyphGlowLineWidth: 4.8,
+                glyphBadgeBackgroundColor: .clear,
+                glyphBadgeBorderColor: .clear,
+                glyphBadgeBorderWidth: 0,
+                glyphBadgeCornerRadius: 8
+            )
         case .minimal:
-            return NSSize(width: 40, height: 40)
-        }
-    }
-
-    private func cornerRadius(for style: GestureHUDStyle) -> CGFloat {
-        switch style {
-        case .classic:
-            return 14
-        case .elegant:
-            return 12
-        case .minimal:
-            return 10
-        }
-    }
-
-    private func backgroundColor(for style: GestureHUDStyle) -> NSColor {
-        switch style {
-        case .classic, .elegant, .minimal:
-            return .clear
-        }
-    }
-
-    private func borderColor(for style: GestureHUDStyle) -> NSColor {
-        switch style {
-        case .classic, .elegant, .minimal:
-            return .clear
-        }
-    }
-
-    private func borderWidth(for style: GestureHUDStyle) -> CGFloat {
-        switch style {
-        case .classic, .elegant, .minimal:
-            return 0
-        }
-    }
-
-    private func material(for style: GestureHUDStyle) -> NSVisualEffectView.Material {
-        switch style {
-        case .classic, .elegant:
-            return .hudWindow
-        case .minimal:
-            return .hudWindow
-        }
-    }
-
-    private func blendingMode(for style: GestureHUDStyle) -> NSVisualEffectView.BlendingMode {
-        switch style {
-        case .classic, .elegant:
-            return .behindWindow
-        case .minimal:
-            return .behindWindow
-        }
-    }
-
-    private func glyphColor(for style: GestureHUDStyle) -> NSColor {
-        switch style {
-        case .classic:
-            return NSColor.labelColor.withAlphaComponent(0.9)
-        case .elegant, .minimal:
-            return NSColor.white.withAlphaComponent(0.95)
-        }
-    }
-
-    private func glyphSecondaryColor(for style: GestureHUDStyle) -> NSColor {
-        switch style {
-        case .classic, .elegant, .minimal:
-            return NSColor.labelColor.withAlphaComponent(0.16)
-        }
-    }
-
-    private func glyphBadgeBackgroundColor(for style: GestureHUDStyle) -> NSColor {
-        switch style {
-        case .classic, .elegant, .minimal:
-            return .clear
-        }
-    }
-
-    private func glyphBadgeBorderColor(for style: GestureHUDStyle) -> NSColor {
-        switch style {
-        case .classic, .elegant, .minimal:
-            return .clear
-        }
-    }
-
-    private func glyphBadgeBorderWidth(for style: GestureHUDStyle) -> CGFloat {
-        switch style {
-        case .classic, .elegant, .minimal:
-            return 0
-        }
-    }
-
-    private func glyphBadgeCornerRadius(for style: GestureHUDStyle) -> CGFloat {
-        switch style {
-        case .classic:
-            return 0
-        case .elegant, .minimal:
-            return 8
-        }
-    }
-
-    private func glyphLineWidth(for style: GestureHUDStyle) -> CGFloat {
-        switch style {
-        case .classic, .elegant:
-            return 2.2
-        case .minimal:
-            return 2.2
-        }
-    }
-
-    private func glyphGlowLineWidth(for style: GestureHUDStyle) -> CGFloat {
-        switch style {
-        case .classic:
-            return 0
-        case .elegant, .minimal:
-            return 4.8
+            return StyleConfiguration(
+                panelSize: NSSize(width: 40, height: 40),
+                cornerRadius: 10,
+                material: .hudWindow,
+                blendingMode: .behindWindow,
+                backgroundColor: .clear,
+                borderColor: .clear,
+                borderWidth: 0,
+                titleFontSize: 13,
+                glyphColor: NSColor.white.withAlphaComponent(0.95),
+                glyphSecondaryColor: NSColor.labelColor.withAlphaComponent(0.16),
+                glyphLineWidth: 2.2,
+                glyphGlowLineWidth: 4.8,
+                glyphBadgeBackgroundColor: .clear,
+                glyphBadgeBorderColor: .clear,
+                glyphBadgeBorderWidth: 0,
+                glyphBadgeCornerRadius: 8
+            )
         }
     }
 }
@@ -549,35 +506,5 @@ private final class GestureGlyphView: NSView {
             x: rect.minX + (rect.width * x),
             y: rect.minY + (rect.height * y)
         )
-    }
-}
-
-private final class GlassHighlightView: NSView {
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        wantsLayer = true
-
-        let gradientLayer = CAGradientLayer()
-        gradientLayer.colors = [
-            NSColor.white.withAlphaComponent(0.34).cgColor,
-            NSColor.white.withAlphaComponent(0.10).cgColor,
-            NSColor.clear.cgColor,
-        ]
-        gradientLayer.locations = [0, 0.38, 1]
-        gradientLayer.startPoint = CGPoint(x: 0.18, y: 1)
-        gradientLayer.endPoint = CGPoint(x: 0.82, y: 0)
-        gradientLayer.cornerRadius = 21
-        layer = gradientLayer
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func layout() {
-        super.layout()
-        layer?.frame = bounds
-        layer?.cornerRadius = bounds.height / 2
     }
 }

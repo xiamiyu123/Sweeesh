@@ -615,9 +615,24 @@ struct WindowManager: WindowManaging {
         owningApp: NSRunningApplication
     ) {
         _ = owningApp.activate(options: [.activateAllWindows])
-        try? performAction(kAXRaiseAction as CFString, on: window)
-        try? setBooleanAttribute(kAXMainAttribute as CFString, value: true, on: window)
-        try? setBooleanAttribute(kAXFocusedAttribute as CFString, value: true, on: window)
+        performBestEffort(
+            context: "raising window before close",
+            fallbackMessage: "AXRaise"
+        ) {
+            try performAction(kAXRaiseAction as CFString, on: window)
+        }
+        performBestEffort(
+            context: "setting AXMain before close",
+            fallbackMessage: "AXMain=true"
+        ) {
+            try setBooleanAttribute(kAXMainAttribute as CFString, value: true, on: window)
+        }
+        performBestEffort(
+            context: "setting AXFocused before close",
+            fallbackMessage: "AXFocused=true"
+        ) {
+            try setBooleanAttribute(kAXFocusedAttribute as CFString, value: true, on: window)
+        }
     }
 
     private func tryCloseViaCloseButton(_ window: AXUIElement, context: String) -> Bool {
@@ -709,12 +724,33 @@ struct WindowManager: WindowManaging {
 
         // Restored windows can take a moment to become orderable, so raise twice
         // around the focus attributes to make the behavior more reliable.
-        try? performAction(kAXRaiseAction as CFString, on: window)
+        performBestEffort(
+            context: "initial AXRaise during bring-to-front",
+            fallbackMessage: "AXRaise"
+        ) {
+            try performAction(kAXRaiseAction as CFString, on: window)
+        }
         try setBooleanAttribute(kAXMainAttribute as CFString, value: true, on: window)
         try setBooleanAttribute(kAXFocusedAttribute as CFString, value: true, on: window)
         try performAction(kAXRaiseAction as CFString, on: window)
         requestForegroundActivation(for: app)
         DebugLog.debug(DebugLog.windows, "Finished bring-to-front sequence for window \(windowSummary([window]))")
+    }
+
+    private func performBestEffort(
+        context: String,
+        fallbackMessage: String,
+        operation: () throws -> Void
+    ) {
+        do {
+            try operation()
+        } catch {
+            let message = error.localizedDescription.isEmpty ? fallbackMessage : error.localizedDescription
+            DebugLog.debug(
+                DebugLog.accessibility,
+                "Best-effort AX step failed while \(context): \(message)"
+            )
+        }
     }
 
     private func requestForegroundActivation(for app: NSRunningApplication) {

@@ -818,19 +818,10 @@ struct WindowManager: WindowManaging {
     }
 
     private func childElement(attribute: CFString, from element: AXUIElement) throws -> AXUIElement {
-        var value: CFTypeRef?
-        let error = AXUIElementCopyAttributeValue(element, attribute, &value)
-
-        guard error == .success, let child = value else {
+        guard let child = AXAttributeReader.element(attribute, from: element) else {
             throw WindowManagerError.unableToPerformAction
         }
-
-        guard CFGetTypeID(child) == AXUIElementGetTypeID() else {
-            throw WindowManagerError.unableToPerformAction
-        }
-        let element = unsafeDowncast(child, to: AXUIElement.self)
-
-        return element
+        return child
     }
 
     private func setFrame(_ frame: CGRect, for window: AXUIElement) throws {
@@ -1011,74 +1002,24 @@ struct WindowManager: WindowManaging {
     }
 
     private func pointAttribute(_ attribute: CFString, from element: AXUIElement) throws -> CGPoint {
-        var value: CFTypeRef?
-        let error = AXUIElementCopyAttributeValue(element, attribute, &value)
-
-        guard error == .success, let axValue = value else {
+        guard let point = AXAttributeReader.point(attribute, from: element) else {
             throw WindowManagerError.unableToReadWindowFrame
         }
-
-        guard CFGetTypeID(axValue) == AXValueGetTypeID() else {
-            throw WindowManagerError.unableToReadWindowFrame
-        }
-        let pointValue = unsafeDowncast(axValue, to: AXValue.self)
-        guard AXValueGetType(pointValue) == .cgPoint else {
-            throw WindowManagerError.unableToReadWindowFrame
-        }
-
-        var point = CGPoint.zero
-        guard AXValueGetValue(pointValue, .cgPoint, &point) else {
-            throw WindowManagerError.unableToReadWindowFrame
-        }
-
         return point
     }
 
     private func sizeAttribute(_ attribute: CFString, from element: AXUIElement) throws -> CGSize {
-        var value: CFTypeRef?
-        let error = AXUIElementCopyAttributeValue(element, attribute, &value)
-
-        guard error == .success, let axValue = value else {
+        guard let size = AXAttributeReader.size(attribute, from: element) else {
             throw WindowManagerError.unableToReadWindowFrame
         }
-
-        guard CFGetTypeID(axValue) == AXValueGetTypeID() else {
-            throw WindowManagerError.unableToReadWindowFrame
-        }
-        let sizeValue = unsafeDowncast(axValue, to: AXValue.self)
-        guard AXValueGetType(sizeValue) == .cgSize else {
-            throw WindowManagerError.unableToReadWindowFrame
-        }
-
-        var size = CGSize.zero
-        guard AXValueGetValue(sizeValue, .cgSize, &size) else {
-            throw WindowManagerError.unableToReadWindowFrame
-        }
-
         return size
     }
 
     private func booleanAttribute(_ attribute: CFString, from element: AXUIElement) throws -> Bool {
-        var value: CFTypeRef?
-        let error = AXUIElementCopyAttributeValue(element, attribute, &value)
-
-        guard error == .success, let cfValue = value else {
+        guard let value = AXAttributeReader.bool(attribute, from: element) else {
             throw WindowManagerError.unableToPerformAction
         }
-
-        guard CFGetTypeID(cfValue) == CFBooleanGetTypeID() else {
-            throw WindowManagerError.unableToPerformAction
-        }
-
-        if let booleanValue = cfValue as? Bool {
-            return booleanValue
-        }
-
-        if let numberValue = cfValue as? NSNumber {
-            return numberValue.boolValue
-        }
-
-        throw WindowManagerError.unableToPerformAction
+        return value
     }
 
     private func windowElements(in appElement: AXUIElement) throws -> [AXUIElement] {
@@ -1259,10 +1200,7 @@ struct WindowManager: WindowManaging {
     }
 
     private func stringAttribute(_ attribute: CFString, from element: AXUIElement) throws -> String {
-        var value: CFTypeRef?
-        let error = AXUIElementCopyAttributeValue(element, attribute, &value)
-
-        guard error == .success, let stringValue = value as? String else {
+        guard let stringValue = AXAttributeReader.string(attribute, from: element) else {
             throw WindowManagerError.unableToPerformAction
         }
 

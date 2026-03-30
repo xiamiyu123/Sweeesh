@@ -258,3 +258,8 @@ See [LICENSE](LICENSE) and [ATTRIBUTION.md](ATTRIBUTION.md) for details.
 Pull requests, issues, and forks are welcome.
 
 If Swooshy helps you, a GitHub star would mean a lot.
+
+## AI Disclosure
+
+This is a vibe-coded project. I used AI heavily during development, then
+tested, adjusted, and cleaned things up myself.

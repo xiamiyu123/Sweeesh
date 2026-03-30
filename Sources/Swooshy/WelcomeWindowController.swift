@@ -4,41 +4,61 @@ import SwiftUI
 
 @MainActor
 final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
-    private let viewModel: WelcomeGuideViewModel
+    private let settingsStore: SettingsStore
+    private let permissionManager: AccessibilityPermissionManaging
+    private let onOpenSettings: () -> Void
+    private let hostingController: NSHostingController<WelcomeGuideView>
+    private var settingsObserver: NSObjectProtocol?
+    private var viewModel: WelcomeGuideViewModel
 
     init(
         settingsStore: SettingsStore,
         permissionManager: AccessibilityPermissionManaging,
         onOpenSettings: @escaping () -> Void
     ) {
-        var windowReference: NSWindow?
+        self.settingsStore = settingsStore
+        self.permissionManager = permissionManager
+        self.onOpenSettings = onOpenSettings
+
         let viewModel = WelcomeGuideViewModel(
             settingsStore: settingsStore,
             permissionManager: permissionManager,
             onOpenSettings: onOpenSettings,
-            onDismiss: {
-                windowReference?.close()
-            }
+            onDismiss: {}
         )
         self.viewModel = viewModel
-
-        let hostingController = NSHostingController(
+        self.hostingController = NSHostingController(
             rootView: WelcomeGuideView(viewModel: viewModel)
         )
         let window = NSWindow(contentViewController: hostingController)
-        windowReference = window
 
         window.setContentSize(NSSize(width: 760, height: 720))
         window.styleMask = [.titled, .closable, .miniaturizable]
         window.isReleasedWhenClosed = false
         window.center()
-        window.title = settingsStore.localized("welcome.window.title")
+        window.title = viewModel.windowTitle
 
         super.init(window: window)
         self.window?.delegate = self
+
+        reloadLocalizedContent(preservingPageIndex: 0)
+        settingsObserver = NotificationCenter.default.addObserver(
+            forName: .settingsDidChange,
+            object: settingsStore,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.reloadLocalizedContent()
+            }
+        }
     }
 
     func shutdown() {
+        if let settingsObserver {
+            NotificationCenter.default.removeObserver(settingsObserver)
+            self.settingsObserver = nil
+        }
+
         window?.delegate = nil
     }
 
@@ -48,6 +68,7 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
     }
 
     func show() {
+        reloadLocalizedContent(preservingPageIndex: 0)
         viewModel.presentWelcome()
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
@@ -55,31 +76,42 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
     }
 
     func showGuide() {
+        reloadLocalizedContent(preservingPageIndex: 1)
         viewModel.presentGuide()
         showWindow(nil)
         window?.makeKeyAndOrderFront(nil)
         NSApplication.shared.activate(ignoringOtherApps: true)
     }
+
+    private func reloadLocalizedContent(preservingPageIndex: Int? = nil) {
+        let viewModel = WelcomeGuideViewModel(
+            settingsStore: settingsStore,
+            permissionManager: permissionManager,
+            onOpenSettings: onOpenSettings,
+            onDismiss: { [weak self] in
+                self?.window?.close()
+            }
+        )
+        if let preservingPageIndex {
+            viewModel.currentPageIndex = min(preservingPageIndex, viewModel.pages.count - 1)
+        }
+
+        self.viewModel = viewModel
+        hostingController.rootView = WelcomeGuideView(viewModel: viewModel)
+        window?.title = viewModel.windowTitle
+    }
 }
 
 @MainActor
-private final class WelcomeGuideViewModel: ObservableObject {
-    enum PageKind {
-        case welcome
-        case tutorial
-    }
-
-    struct Page: Identifiable {
+struct WelcomeGuideContent {
+    struct Page: Identifiable, Equatable {
         let id: Int
-        let kind: PageKind
+        let kind: WelcomeGuideViewModel.PageKind
         let title: String
         let message: String
         let bullets: [String]
         let imageName: String?
     }
-
-    @Published var currentPageIndex: Int = 0
-    @Published var permissionGranted: Bool
 
     let windowTitle: String
     let welcomeTitle: String
@@ -100,103 +132,27 @@ private final class WelcomeGuideViewModel: ObservableObject {
     let nextPreviewTitle: String
     let pages: [Page]
 
-    private let settingsStore: SettingsStore
-    private let permissionManager: AccessibilityPermissionManaging
-    private let onOpenSettings: () -> Void
-    private let onDismiss: () -> Void
-
-    init(
-        settingsStore: SettingsStore,
-        permissionManager: AccessibilityPermissionManaging,
-        onOpenSettings: @escaping () -> Void,
-        onDismiss: @escaping () -> Void
-    ) {
-        self.settingsStore = settingsStore
-        self.windowTitle = settingsStore.localized("welcome.window.title")
-        self.welcomeTitle = settingsStore.localized("welcome.title")
-        self.welcomeMessage = settingsStore.localized("welcome.message")
-        self.permissionStep = settingsStore.localized("welcome.step.permission")
-        self.settingsStep = settingsStore.localized("welcome.step.settings")
-        self.permissionGrantedText = settingsStore.localized("welcome.permission.granted")
-        self.permissionMissingText = settingsStore.localized("welcome.permission.missing")
-        self.permissionTroubleshootingText = settingsStore.localized("welcome.permission.troubleshooting")
-        self.grantPermissionActionTitle = settingsStore.localized("welcome.grant_permission_action")
-        self.refreshPermissionActionTitle = settingsStore.localized("welcome.refresh_permission_action")
-        self.openSettingsActionTitle = settingsStore.localized("welcome.open_settings_action")
-        self.nextActionTitle = settingsStore.localized("guide.next_action")
-        self.previousActionTitle = settingsStore.localized("guide.previous_action")
-        self.closeActionTitle = settingsStore.localized("guide.close_action")
-        self.pageFormat = settingsStore.localized("guide.page_format")
-        self.guideTitle = settingsStore.localized("menu.help")
-        self.nextPreviewTitle = settingsStore.localized("guide.next_preview")
-        self.permissionManager = permissionManager
-        self.onOpenSettings = onOpenSettings
-        self.onDismiss = onDismiss
-        self.permissionGranted = permissionManager.isTrusted(promptIfNeeded: false)
-        self.pages = Self.makePages(settingsStore: settingsStore)
-    }
-
-    var currentPage: Page {
-        pages[currentPageIndex]
-    }
-
-    var isFirstPage: Bool {
-        currentPageIndex == 0
-    }
-
-    var isLastPage: Bool {
-        currentPageIndex == pages.count - 1
-    }
-
-    var canOpenSettings: Bool {
-        permissionGranted
-    }
-
-    var pageIndicatorText: String {
-        let pageNumber = currentPageIndex + 1
-        return String(format: pageFormat, pageNumber, pages.count)
-    }
-
-    func presentWelcome() {
-        refreshPermissionState()
-        currentPageIndex = 0
-    }
-
-    func presentGuide() {
-        refreshPermissionState()
-        currentPageIndex = min(1, pages.count - 1)
-    }
-
-    func goToNextPage() {
-        guard isLastPage == false else { return }
-        currentPageIndex += 1
-    }
-
-    func goToPreviousPage() {
-        guard isFirstPage == false else { return }
-        currentPageIndex -= 1
-    }
-
-    func requestPermission() {
-        permissionGranted = permissionManager.isTrusted(promptIfNeeded: true)
-        refreshPermissionState()
-    }
-
-    func refreshPermissionState() {
-        permissionGranted = permissionManager.isTrusted(promptIfNeeded: false)
-    }
-
-    func dismiss() {
-        onDismiss()
-    }
-
-    func openSettings() {
-        onOpenSettings()
-        onDismiss()
-    }
-
-    func localized(_ key: String) -> String {
-        settingsStore.localized(key)
+    static func make(settingsStore: SettingsStore) -> Self {
+        Self(
+            windowTitle: settingsStore.localized("welcome.window.title"),
+            welcomeTitle: settingsStore.localized("welcome.title"),
+            welcomeMessage: settingsStore.localized("welcome.message"),
+            permissionStep: settingsStore.localized("welcome.step.permission"),
+            settingsStep: settingsStore.localized("welcome.step.settings"),
+            permissionGrantedText: settingsStore.localized("welcome.permission.granted"),
+            permissionMissingText: settingsStore.localized("welcome.permission.missing"),
+            permissionTroubleshootingText: settingsStore.localized("welcome.permission.troubleshooting"),
+            grantPermissionActionTitle: settingsStore.localized("welcome.grant_permission_action"),
+            refreshPermissionActionTitle: settingsStore.localized("welcome.refresh_permission_action"),
+            openSettingsActionTitle: settingsStore.localized("welcome.open_settings_action"),
+            nextActionTitle: settingsStore.localized("guide.next_action"),
+            previousActionTitle: settingsStore.localized("guide.previous_action"),
+            closeActionTitle: settingsStore.localized("guide.close_action"),
+            pageFormat: settingsStore.localized("guide.page_format"),
+            guideTitle: settingsStore.localized("menu.help"),
+            nextPreviewTitle: settingsStore.localized("guide.next_preview"),
+            pages: makePages(settingsStore: settingsStore)
+        )
     }
 
     private static func makePages(settingsStore: SettingsStore) -> [Page] {
@@ -285,6 +241,120 @@ private final class WelcomeGuideViewModel: ObservableObject {
     }
 }
 
+@MainActor
+final class WelcomeGuideViewModel: ObservableObject {
+    enum PageKind {
+        case welcome
+        case tutorial
+    }
+
+    @Published var currentPageIndex: Int = 0
+    @Published var permissionGranted: Bool
+
+    let content: WelcomeGuideContent
+
+    private let settingsStore: SettingsStore
+    private let permissionManager: AccessibilityPermissionManaging
+    private let onOpenSettings: () -> Void
+    private let onDismiss: () -> Void
+
+    init(
+        settingsStore: SettingsStore,
+        permissionManager: AccessibilityPermissionManaging,
+        onOpenSettings: @escaping () -> Void,
+        onDismiss: @escaping () -> Void
+    ) {
+        self.settingsStore = settingsStore
+        self.content = WelcomeGuideContent.make(settingsStore: settingsStore)
+        self.permissionManager = permissionManager
+        self.onOpenSettings = onOpenSettings
+        self.onDismiss = onDismiss
+        self.permissionGranted = permissionManager.isTrusted(promptIfNeeded: false)
+    }
+
+    var windowTitle: String { content.windowTitle }
+    var welcomeTitle: String { content.welcomeTitle }
+    var welcomeMessage: String { content.welcomeMessage }
+    var permissionStep: String { content.permissionStep }
+    var settingsStep: String { content.settingsStep }
+    var permissionGrantedText: String { content.permissionGrantedText }
+    var permissionMissingText: String { content.permissionMissingText }
+    var permissionTroubleshootingText: String { content.permissionTroubleshootingText }
+    var grantPermissionActionTitle: String { content.grantPermissionActionTitle }
+    var refreshPermissionActionTitle: String { content.refreshPermissionActionTitle }
+    var openSettingsActionTitle: String { content.openSettingsActionTitle }
+    var nextActionTitle: String { content.nextActionTitle }
+    var previousActionTitle: String { content.previousActionTitle }
+    var closeActionTitle: String { content.closeActionTitle }
+    var pageFormat: String { content.pageFormat }
+    var guideTitle: String { content.guideTitle }
+    var nextPreviewTitle: String { content.nextPreviewTitle }
+    var pages: [WelcomeGuideContent.Page] { content.pages }
+
+    var currentPage: WelcomeGuideContent.Page {
+        content.pages[currentPageIndex]
+    }
+
+    var isFirstPage: Bool {
+        currentPageIndex == 0
+    }
+
+    var isLastPage: Bool {
+        currentPageIndex == pages.count - 1
+    }
+
+    var canOpenSettings: Bool {
+        permissionGranted
+    }
+
+    var pageIndicatorText: String {
+        let pageNumber = currentPageIndex + 1
+        return String(format: pageFormat, pageNumber, pages.count)
+    }
+
+    func presentWelcome() {
+        refreshPermissionState()
+        currentPageIndex = 0
+    }
+
+    func presentGuide() {
+        refreshPermissionState()
+        currentPageIndex = min(1, pages.count - 1)
+    }
+
+    func goToNextPage() {
+        guard isLastPage == false else { return }
+        currentPageIndex += 1
+    }
+
+    func goToPreviousPage() {
+        guard isFirstPage == false else { return }
+        currentPageIndex -= 1
+    }
+
+    func requestPermission() {
+        permissionGranted = permissionManager.isTrusted(promptIfNeeded: true)
+        refreshPermissionState()
+    }
+
+    func refreshPermissionState() {
+        permissionGranted = permissionManager.isTrusted(promptIfNeeded: false)
+    }
+
+    func dismiss() {
+        onDismiss()
+    }
+
+    func openSettings() {
+        onOpenSettings()
+        onDismiss()
+    }
+
+    func localized(_ key: String) -> String {
+        settingsStore.localized(key)
+    }
+}
+
 private struct WelcomeGuideView: View {
     @ObservedObject var viewModel: WelcomeGuideViewModel
     @State private var launchAtLoginController = LaunchAtLoginController()
@@ -364,7 +434,7 @@ private struct WelcomeGuideView: View {
         }
     }
 
-    private func tutorialContent(page: WelcomeGuideViewModel.Page) -> some View {
+    private func tutorialContent(page: WelcomeGuideContent.Page) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 Text(page.message)

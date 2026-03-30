@@ -24,4 +24,11 @@ struct ScreenGeometry {
             height: frame.height
         ).integral
     }
+
+    func axPoint(fromAppKitPoint point: CGPoint) -> CGPoint {
+        CGPoint(
+            x: point.x,
+            y: primaryScreenMaxY - point.y
+        )
+    }
 }

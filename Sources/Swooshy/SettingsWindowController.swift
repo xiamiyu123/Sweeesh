@@ -158,6 +158,18 @@ private struct SettingsView: View {
             }
 
             Section {
+                Toggle(
+                    settingsStore.localized("settings.advanced.title_bar_overlay_protection.enabled"),
+                    isOn: $settingsStore.titleBarOverlayProtectionEnabled
+                )
+                .disabled(settingsStore.titleBarGesturesEnabled == false)
+            } header: {
+                Text(settingsStore.localized("settings.section.advanced"))
+            } footer: {
+                Text(settingsStore.localized("settings.advanced.title_bar_overlay_protection.footer"))
+            }
+
+            Section {
                 ForEach(DockGestureKind.allCases) { gesture in
                     DockGestureActionRow(settingsStore: settingsStore, gesture: gesture)
                         .disabled(settingsStore.dockGesturesEnabled == false)

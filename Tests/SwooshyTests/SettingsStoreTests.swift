@@ -16,6 +16,7 @@ struct SettingsStoreTests {
         store.statusItemIcon = .windowGrid
         store.dockGesturesEnabled = false
         store.titleBarGesturesEnabled = false
+        store.titleBarOverlayProtectionEnabled = true
         store.updateDockGestureAction(.closeWindow, for: .pinchIn)
         store.updateDockGestureEnabled(false, for: .pinchIn)
         store.updateTitleBarGestureAction(.maximize, for: .swipeLeft)
@@ -28,6 +29,7 @@ struct SettingsStoreTests {
         #expect(reloadedStore.statusItemIcon == .windowGrid)
         #expect(reloadedStore.dockGesturesEnabled == false)
         #expect(reloadedStore.titleBarGesturesEnabled == false)
+        #expect(reloadedStore.titleBarOverlayProtectionEnabled == true)
         #expect(reloadedStore.dockGestureAction(for: .pinchIn) == .closeWindow)
         #expect(reloadedStore.dockGestureIsEnabled(for: .pinchIn) == false)
         #expect(reloadedStore.titleBarGestureAction(for: .swipeLeft) == .maximize)
@@ -111,6 +113,7 @@ struct SettingsStoreTests {
         store.hotKeysEnabled = false
         store.dockGesturesEnabled = false
         store.titleBarGesturesEnabled = false
+        store.titleBarOverlayProtectionEnabled = true
         store.statusItemIcon = .windowGrid
         _ = store.consumeWelcomeGuidePresentationFlag()
         store.updateDockGestureAction(.closeWindow, for: .pinchIn)
@@ -122,9 +125,21 @@ struct SettingsStoreTests {
         #expect(reloadedStore.hotKeysEnabled == true)
         #expect(reloadedStore.dockGesturesEnabled == true)
         #expect(reloadedStore.titleBarGesturesEnabled == true)
+        #expect(reloadedStore.titleBarOverlayProtectionEnabled == true)
         #expect(reloadedStore.statusItemIcon == .gale)
         #expect(reloadedStore.hasSeenWelcomeGuide == false)
         #expect(reloadedStore.dockGestureAction(for: .pinchIn) == .quitApplication)
+    }
+
+    @Test
+    func titleBarOverlayProtectionDefaultsToEnabled() {
+        let suiteName = "Swooshy.SettingsStoreTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+
+        let store = SettingsStore(userDefaults: defaults)
+
+        #expect(store.titleBarOverlayProtectionEnabled == true)
     }
 
     @Test

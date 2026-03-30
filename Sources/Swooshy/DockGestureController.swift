@@ -165,9 +165,19 @@ final class DockGestureController {
         let needsDockLookup = dockGesturesEnabled && dockRecognizer.requiresHoveredApplication
         let needsTitleBarLookup = titleBarGesturesEnabled && titleBarRecognizer.requiresHoveredApplication
         let mouseLocation = (needsDockLookup || needsTitleBarLookup) ? NSEvent.mouseLocation : nil
-        let hoveredDockApplication = needsDockLookup ? mouseLocation.flatMap { dockProbe.hoveredApplication(at: $0) } : nil
+        let hoveredDockApplication = needsDockLookup ? mouseLocation.flatMap {
+            dockProbe.hoveredApplication(
+                at: $0,
+                requireFrontmostOwnership: settingsStore.titleBarOverlayProtectionEnabled
+            )
+        } : nil
         let hoveredTitleBarApplication = needsTitleBarLookup && hoveredDockApplication == nil
-            ? mouseLocation.flatMap { titleBarProbe.hoveredApplication(at: $0) }
+            ? mouseLocation.flatMap {
+                titleBarProbe.hoveredApplication(
+                    at: $0,
+                    requireFrontmostOwnership: settingsStore.titleBarOverlayProtectionEnabled
+                )
+            }
             : nil
 
 #if DEBUG
@@ -392,11 +402,21 @@ private final class TitleBarAccessibilityProbe {
         lastProbeLogKey = ""
     }
 
-    func hoveredApplication(at appKitPoint: CGPoint) -> DockApplicationTarget? {
+    func hoveredApplication(
+        at appKitPoint: CGPoint,
+        requireFrontmostOwnership: Bool
+    ) -> DockApplicationTarget? {
         let now = Date()
 
         if let cachedHitRegion, now < cachedHitRegion.expiresAt {
-            if cachedHitRegion.frame.contains(appKitPoint) {
+            if
+                cachedHitRegion.frame.contains(appKitPoint),
+                pointBelongsToFrontmostApplication(
+                    appKitPoint,
+                    processIdentifier: cachedHitRegion.application.processIdentifier,
+                    required: requireFrontmostOwnership
+                )
+            {
                 logProbeIfNeeded(
                     key: "hit-cache:\(cachedHitRegion.application.processIdentifier):\(Int(appKitPoint.x)):\(Int(appKitPoint.y))",
                     message: {
@@ -458,7 +478,14 @@ private final class TitleBarAccessibilityProbe {
             expiresAt: now.addingTimeInterval(cacheTTL)
         )
 
-        if titleBarFrame.contains(appKitPoint) {
+        if
+            titleBarFrame.contains(appKitPoint),
+            pointBelongsToFrontmostApplication(
+                appKitPoint,
+                processIdentifier: target.processIdentifier,
+                required: requireFrontmostOwnership
+            )
+        {
             logProbeIfNeeded(
                 key: "hit:\(target.processIdentifier):\(Int(titleBarFrame.minX)):\(Int(titleBarFrame.minY)):\(Int(titleBarFrame.width)):\(Int(titleBarFrame.height))",
                 message: {
@@ -517,6 +544,22 @@ private final class TitleBarAccessibilityProbe {
         ).integral
     }
 
+    private func pointBelongsToFrontmostApplication(
+        _ appKitPoint: CGPoint,
+        processIdentifier: pid_t,
+        required: Bool
+    ) -> Bool {
+        guard required else {
+            return true
+        }
+
+        guard let hitProcessIdentifier = axHitProcessIdentifier(at: appKitPoint) else {
+            return true
+        }
+
+        return hitProcessIdentifier == processIdentifier
+    }
+
     private func isFullScreen(_ window: AXUIElement) -> Bool {
         AXAttributeReader.bool("AXFullScreen" as CFString, from: window) ?? false
     }
@@ -531,6 +574,31 @@ private final class TitleBarAccessibilityProbe {
         lastProbeLogAt = now
         DebugLog.debug(DebugLog.dock, message())
     }
+}
+
+private func axHitProcessIdentifier(at appKitPoint: CGPoint) -> pid_t? {
+    let geometry = ScreenGeometry(screenFrames: NSScreen.screens.map(\.frame))
+    let axPoint = geometry.axPoint(fromAppKitPoint: appKitPoint)
+    let systemWideElement = AXUIElementCreateSystemWide()
+    var hitElement: AXUIElement?
+    let result = AXUIElementCopyElementAtPosition(
+        systemWideElement,
+        Float(axPoint.x),
+        Float(axPoint.y),
+        &hitElement
+    )
+
+    guard result == .success, let hitElement else {
+        return nil
+    }
+
+    var hitProcessIdentifier: pid_t = 0
+    let pidResult = AXUIElementGetPid(hitElement, &hitProcessIdentifier)
+    guard pidResult == .success else {
+        return nil
+    }
+
+    return hitProcessIdentifier
 }
 
 @MainActor
@@ -572,13 +640,17 @@ private final class DockAccessibilityProbe {
 #endif
     }
 
-    func hoveredApplication(at appKitPoint: CGPoint) -> DockApplicationTarget? {
+    func hoveredApplication(
+        at appKitPoint: CGPoint,
+        requireFrontmostOwnership: Bool
+    ) -> DockApplicationTarget? {
         let now = Date()
 
         if
             let cachedHoverHit,
             now < cachedHoverHit.expiresAt,
-            cachedHoverHit.frame.contains(appKitPoint)
+            cachedHoverHit.frame.contains(appKitPoint),
+            pointBelongsToDock(at: appKitPoint, required: requireFrontmostOwnership)
         {
             logProbeIfNeeded(
                 key: "hit-cache:\(cachedHoverHit.target.dockItemName):\(cachedHoverHit.target.processIdentifier):\(Int(appKitPoint.x)):\(Int(appKitPoint.y))",
@@ -606,6 +678,9 @@ private final class DockAccessibilityProbe {
             frame: hoveredCandidate.frame,
             expiresAt: now.addingTimeInterval(candidateCacheTTL)
         )
+        guard pointBelongsToDock(at: appKitPoint, required: requireFrontmostOwnership) else {
+            return nil
+        }
         logProbeIfNeeded(
             key: "hit:\(hoveredCandidate.target.dockItemName):\(hoveredCandidate.target.processIdentifier):\(Int(appKitPoint.x)):\(Int(appKitPoint.y))",
             message: {
@@ -613,6 +688,26 @@ private final class DockAccessibilityProbe {
             }
         )
         return hoveredCandidate.target
+    }
+
+    private func pointBelongsToDock(at appKitPoint: CGPoint, required: Bool) -> Bool {
+        guard required else {
+            return true
+        }
+
+        guard
+            let dockProcess = NSRunningApplication.runningApplications(
+                withBundleIdentifier: "com.apple.dock"
+            ).first
+        else {
+            return true
+        }
+
+        guard let hitProcessIdentifier = axHitProcessIdentifier(at: appKitPoint) else {
+            return true
+        }
+
+        return hitProcessIdentifier == dockProcess.processIdentifier
     }
 
     private func dockSnapshot(containing appKitPoint: CGPoint, at now: Date) -> DockHoverSnapshot {

@@ -47,6 +47,18 @@ final class SettingsStore {
         }
     }
 
+    var titleBarOverlayProtectionEnabled: Bool {
+        didSet {
+            guard oldValue != titleBarOverlayProtectionEnabled else { return }
+            userDefaults.set(titleBarOverlayProtectionEnabled, forKey: Keys.titleBarOverlayProtectionEnabled)
+            DebugLog.info(
+                DebugLog.settings,
+                "Title-bar overlay protection enabled set to \(titleBarOverlayProtectionEnabled)"
+            )
+            notifyDidChange()
+        }
+    }
+
     var gestureHUDStyle: GestureHUDStyle {
         didSet {
             guard oldValue != gestureHUDStyle else { return }
@@ -134,6 +146,11 @@ final class SettingsStore {
             defaultValue: true,
             in: userDefaults
         )
+        self.titleBarOverlayProtectionEnabled = Self.boolValue(
+            forKey: Keys.titleBarOverlayProtectionEnabled,
+            defaultValue: true,
+            in: userDefaults
+        )
         self.gestureHUDStyle = GestureHUDStyle(
             storageValue: userDefaults.string(forKey: Keys.gestureHUDStyle)
         )
@@ -163,6 +180,7 @@ final class SettingsStore {
             Keys.hotKeysEnabled,
             Keys.dockGesturesEnabled,
             Keys.titleBarGesturesEnabled,
+            Keys.titleBarOverlayProtectionEnabled,
             Keys.gestureHUDStyle,
             Keys.statusItemIcon,
             Keys.hotKeyBindings,
@@ -446,6 +464,7 @@ final class SettingsStore {
         static let hotKeysEnabled = "settings.hotKeysEnabled"
         static let dockGesturesEnabled = "settings.dockGesturesEnabled"
         static let titleBarGesturesEnabled = "settings.titleBarGesturesEnabled"
+        static let titleBarOverlayProtectionEnabled = "settings.titleBarOverlayProtectionEnabled"
         static let gestureHUDStyle = "settings.gestureHUDStyle"
         static let statusItemIcon = "settings.statusItemIcon"
         static let hasSeenWelcomeGuide = "settings.hasSeenWelcomeGuide"

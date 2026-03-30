@@ -61,4 +61,15 @@ struct ScreenGeometryTests {
         #expect(axFrame == CGRect(x: 120, y: -780, width: 900, height: 700))
         #expect(geometry.appKitFrame(fromAXFrame: axFrame) == appKitFrame)
     }
+
+    @Test
+    func convertsSingleScreenAppKitPointToAXCoordinates() {
+        let geometry = ScreenGeometry(
+            screenFrames: [CGRect(x: 0, y: 0, width: 1440, height: 900)]
+        )
+
+        let axPoint = geometry.axPoint(fromAppKitPoint: CGPoint(x: 120, y: 210))
+
+        #expect(axPoint == CGPoint(x: 120, y: 690))
+    }
 }

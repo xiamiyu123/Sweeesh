@@ -83,6 +83,7 @@
 "settings.section.gestures" = "手势";
 "settings.section.dock_gestures" = "Dock 手势";
 "settings.section.title_bar_gestures" = "标题栏手势";
+"settings.section.advanced" = "高级";
 "settings.section.shortcuts" = "快捷键";
 "settings.language.label" = "语言";
 "settings.language.system" = "跟随系统";
@@ -119,6 +120,8 @@
 "settings.dock_gestures.gesture.pinch_in" = "双指捏合";
 "settings.dock_gestures.reset" = "恢复默认手势动作";
 "settings.title_bar_gestures.reset" = "恢复标题栏默认动作";
+"settings.advanced.title_bar_overlay_protection.enabled" = "当指针被其他覆盖层遮挡时忽略手势";
+"settings.advanced.title_bar_overlay_protection.footer" = "启用后，Swooshy 会在触发 Dock 或标题栏手势前确认指针当前命中的仍是目标应用本身。这样在操作通知或其他浮层时，可以减少误触。";
 "settings.debug_logging.enabled" = "启用调试日志";
 "settings.shortcuts.recorder_placeholder" = "请按快捷键";
 "settings.shortcuts.reset" = "恢复默认快捷键";

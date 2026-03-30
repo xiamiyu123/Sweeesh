@@ -92,6 +92,15 @@ private struct SettingsView: View {
                     )
                 )
 
+                SettingsHintGroup {
+                    Text(settingsStore.localized("settings.launch_at_login.footer"))
+
+                    if let statusMessage = launchAtLoginController.statusMessage,
+                       statusMessage.isEmpty == false {
+                        Text(statusMessage)
+                    }
+                }
+
                 Picker(
                     settingsStore.localized("settings.status_item_icon.label"),
                     selection: $settingsStore.statusItemIcon
@@ -110,27 +119,6 @@ private struct SettingsView: View {
                 #endif
             } header: {
                 Text(settingsStore.localized("settings.section.general"))
-            } footer: {
-                VStack(alignment: .leading, spacing: 6) {
-                    let footerText = settingsStore.localized("settings.launch_at_login.footer")
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
-
-                    if footerText.isEmpty == false {
-                        Text(footerText)
-                    }
-
-                    let iconFooterText = settingsStore.localized("settings.status_item_icon.footer")
-                        .trimmingCharacters(in: .whitespacesAndNewlines)
-
-                    if iconFooterText.isEmpty == false {
-                        Text(iconFooterText)
-                    }
-
-                    if let statusMessage = launchAtLoginController.statusMessage,
-                       statusMessage.isEmpty == false {
-                        Text(statusMessage)
-                    }
-                }
             }
 
             Section {
@@ -152,11 +140,15 @@ private struct SettingsView: View {
                 }
                 .pickerStyle(.menu)
 
+                SettingsHintGroup {
+                    Text(settingsStore.localized("settings.gesture_hud.footer"))
+                }
+
                 GestureHUDPreviewStrip(settingsStore: settingsStore)
             } header: {
                 Text(settingsStore.localized("settings.section.gestures"))
             } footer: {
-                Text(settingsStore.localized("settings.gesture_hud.footer"))
+                Text(settingsStore.localized("settings.gestures.footer"))
             }
 
             Section {
@@ -250,6 +242,20 @@ private struct SettingsView: View {
         } else {
             Text(title)
         }
+    }
+}
+
+private struct SettingsHintGroup<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            content
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top, 2)
     }
 }
 

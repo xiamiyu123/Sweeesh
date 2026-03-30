@@ -28,5 +28,18 @@ cask "swooshy" do
   depends_on macos: ">= :sonoma"
 
   app "Swooshy.app"
+
+  uninstall quit:       "com.xiamiyu123.swooshy",
+            on_upgrade: :quit
+
+  zap trash: [
+    "~/Library/Application Support/Swooshy",
+    "~/Library/Preferences/com.xiamiyu123.swooshy.plist",
+  ]
+
+  caveats <<~EOS
+    Homebrew will ask Swooshy to quit during uninstall and upgrade so the app can be replaced safely.
+    Reopen Swooshy after the command finishes if you want to keep using it.
+  EOS
 end
 EOF

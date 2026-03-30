@@ -133,6 +133,10 @@ brew update
 brew install --cask swooshy
 ```
 
+When upgrading or uninstalling through Homebrew, quit `Swooshy` first if you
+can. The cask also asks the running app to quit automatically so replacement is
+less likely to fail.
+
 After installation, launch `Swooshy` from Launchpad or Spotlight, or run:
 
 ```bash

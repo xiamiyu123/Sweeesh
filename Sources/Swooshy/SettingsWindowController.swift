@@ -163,37 +163,9 @@ private struct SettingsView: View {
                 Text(settingsStore.localized("settings.advanced.title_bar_overlay_protection.footer"))
             }
 
-            Section {
-                ForEach(DockGestureKind.allCases) { gesture in
-                    DockGestureActionRow(settingsStore: settingsStore, gesture: gesture)
-                        .disabled(settingsStore.dockGesturesEnabled == false)
-                }
+            DockGestureMappingsSection(settingsStore: settingsStore)
 
-                Button(settingsStore.localized("settings.dock_gestures.reset")) {
-                    settingsStore.resetDockGestureActionsToDefaults()
-                }
-                .disabled(settingsStore.dockGesturesEnabled == false)
-            } header: {
-                Text(settingsStore.localized("settings.section.dock_gestures"))
-            } footer: {
-                Text(settingsStore.localized("settings.dock_gestures.footer"))
-            }
-
-            Section {
-                ForEach(TitleBarGestureBindings.supportedGestures) { gesture in
-                    TitleBarGestureActionRow(settingsStore: settingsStore, gesture: gesture)
-                        .disabled(settingsStore.titleBarGesturesEnabled == false)
-                }
-
-                Button(settingsStore.localized("settings.title_bar_gestures.reset")) {
-                    settingsStore.resetTitleBarGestureActionsToDefaults()
-                }
-                .disabled(settingsStore.titleBarGesturesEnabled == false)
-            } header: {
-                Text(settingsStore.localized("settings.section.title_bar_gestures"))
-            } footer: {
-                Text(settingsStore.localized("settings.title_bar_gestures.footer"))
-            }
+            TitleBarGestureMappingsSection(settingsStore: settingsStore)
 
             Section {
                 ForEach(WindowAction.allCases, id: \.self) { action in
@@ -256,6 +228,97 @@ private struct SettingsHintGroup<Content: View>: View {
         .foregroundStyle(.secondary)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.top, 2)
+    }
+}
+
+private struct SettingsSectionHeader: View {
+    let title: String
+
+    var body: some View {
+        Text(title)
+            .font(.headline)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.top, 8)
+    }
+}
+
+private struct SettingsMappingCard<Rows: View>: View {
+    @ViewBuilder let rows: Rows
+
+    var body: some View {
+        VStack(spacing: 0) {
+            rows
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color(nsColor: .separatorColor).opacity(0.08), lineWidth: 1)
+        )
+    }
+}
+
+private struct DockGestureMappingsSection: View {
+    @Bindable var settingsStore: SettingsStore
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SettingsSectionHeader(title: settingsStore.localized("settings.section.dock_gestures"))
+
+            SettingsMappingCard {
+                ForEach(Array(DockGestureKind.allCases.enumerated()), id: \.element) { index, gesture in
+                    DockGestureActionRow(settingsStore: settingsStore, gesture: gesture)
+                        .disabled(settingsStore.dockGesturesEnabled == false)
+
+                    if index < DockGestureKind.allCases.count - 1 {
+                        Divider()
+                    }
+                }
+            }
+
+            Button(settingsStore.localized("settings.dock_gestures.reset")) {
+                settingsStore.resetDockGestureActionsToDefaults()
+            }
+            .disabled(settingsStore.dockGesturesEnabled == false)
+
+            Text(settingsStore.localized("settings.dock_gestures.footer"))
+                .font(.body)
+                .foregroundStyle(.secondary)
+        }
+    }
+}
+
+private struct TitleBarGestureMappingsSection: View {
+    @Bindable var settingsStore: SettingsStore
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SettingsSectionHeader(title: settingsStore.localized("settings.section.title_bar_gestures"))
+
+            SettingsMappingCard {
+                ForEach(Array(TitleBarGestureBindings.supportedGestures.enumerated()), id: \.element) { index, gesture in
+                    TitleBarGestureActionRow(settingsStore: settingsStore, gesture: gesture)
+                        .disabled(settingsStore.titleBarGesturesEnabled == false)
+
+                    if index < TitleBarGestureBindings.supportedGestures.count - 1 {
+                        Divider()
+                    }
+                }
+            }
+
+            Button(settingsStore.localized("settings.title_bar_gestures.reset")) {
+                settingsStore.resetTitleBarGestureActionsToDefaults()
+            }
+            .disabled(settingsStore.titleBarGesturesEnabled == false)
+
+            Text(settingsStore.localized("settings.title_bar_gestures.footer"))
+                .font(.body)
+                .foregroundStyle(.secondary)
+        }
     }
 }
 

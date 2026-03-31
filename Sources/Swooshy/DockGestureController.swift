@@ -244,6 +244,10 @@ final class DockGestureController {
     }
 
     private func handleDockGestureEvent(_ event: DockGestureEvent, anchorPoint: CGPoint, touches: [TrackpadTouchSample]) {
+        guard settingsStore.dockGestureIsEnabled(for: event.gesture) else {
+            DebugLog.debug(DebugLog.dock, "Ignoring disabled Dock gesture \(event.gesture.rawValue)")
+            return
+        }
         let action = settingsStore.dockGestureAction(for: event.gesture)
         let application = event.application
         let persistent = settingsStore.executeGestureOnRelease
@@ -323,6 +327,11 @@ final class DockGestureController {
 
         guard let action = titleBarAction(for: event.gesture) else {
             DebugLog.debug(DebugLog.dock, "Ignoring unsupported title-bar gesture \(event.gesture.rawValue)")
+            return
+        }
+
+        guard settingsStore.titleBarGestureIsEnabled(for: event.gesture) else {
+            DebugLog.debug(DebugLog.dock, "Ignoring disabled title-bar gesture \(event.gesture.rawValue)")
             return
         }
 

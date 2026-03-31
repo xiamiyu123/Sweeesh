@@ -138,7 +138,7 @@ open /Applications/Swooshy.app
 
 1. 打开 [Releases](https://github.com/xiamiyu123/Swooshy/releases/latest) 页面
 2. 下载最新版本的 `.zip` 安装包
-3. 解压后将 `Swooshy.app` 拖到 `/Applications`
+3. 解压后将 `Swooshy.app` 拖到访达中的 `/Applications`（或`应用程序`）
 4. 双击 `Swooshy.app` 启动
 
 首次启动后，请按提示为 Swooshy 授予“辅助功能”权限。

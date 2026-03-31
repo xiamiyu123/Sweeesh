@@ -10,6 +10,7 @@ enum WindowAction: Int, CaseIterable, Codable, Hashable, Sendable {
     case quitApplication = 6
     case cycleSameAppWindowsForward = 7
     case cycleSameAppWindowsBackward = 8
+    case toggleFullScreen = 9
 
     var title: String {
         title()
@@ -74,6 +75,12 @@ enum WindowAction: Int, CaseIterable, Codable, Hashable, Sendable {
                 localeIdentifier: localeIdentifier,
                 preferredLanguages: preferredLanguages
             )
+        case .toggleFullScreen:
+            return L10n.string(
+                "action.toggle_full_screen",
+                localeIdentifier: localeIdentifier,
+                preferredLanguages: preferredLanguages
+            )
         }
     }
 
@@ -97,6 +104,8 @@ enum WindowAction: Int, CaseIterable, Codable, Hashable, Sendable {
             return "8"
         case .cycleSameAppWindowsBackward:
             return "9"
+        case .toggleFullScreen:
+            return "0"
         }
     }
 }

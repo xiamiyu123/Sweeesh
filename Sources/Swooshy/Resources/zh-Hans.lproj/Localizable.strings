@@ -14,6 +14,7 @@
 "action.restore_window" = "恢复最小化窗口";
 "action.close_window" = "关闭窗口";
 "action.quit_application" = "退出应用";
+"action.toggle_full_screen" = "最大化全屏";
 "action.cycle_same_app_windows_forward" = "向前切换当前应用窗口";
 "action.cycle_same_app_windows_backward" = "向后切换当前应用窗口";
 
@@ -120,6 +121,7 @@
 "settings.dock_gestures.gesture.swipe_down" = "双指下滑";
 "settings.dock_gestures.gesture.swipe_up" = "双指上滑";
 "settings.dock_gestures.gesture.pinch_in" = "双指捏合";
+"settings.dock_gestures.gesture.pinch_out" = "双指张开";
 "settings.dock_gestures.reset" = "恢复默认手势动作";
 "settings.title_bar_gestures.reset" = "恢复标题栏默认动作";
 "settings.advanced.title_bar_overlay_protection.enabled" = "当指针被其他覆盖层遮挡时忽略手势";

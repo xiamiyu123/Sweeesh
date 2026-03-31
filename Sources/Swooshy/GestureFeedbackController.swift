@@ -551,6 +551,20 @@ private final class GestureGlyphView: NSView {
             addLine(to: path, from: point(in: rect, x: 0.88, y: 0.18), to: point(in: rect, x: 0.62, y: 0.4))
             addLine(to: path, from: point(in: rect, x: 0.12, y: 0.82), to: point(in: rect, x: 0.38, y: 0.6))
             addLine(to: path, from: point(in: rect, x: 0.88, y: 0.82), to: point(in: rect, x: 0.62, y: 0.6))
+        case .pinchOut:
+            // Left expanding arrow
+            let leftTip = point(in: rect, x: 0.16, y: 0.5)
+            let leftTail = point(in: rect, x: 0.42, y: 0.5)
+            addLine(to: path, from: leftTail, to: leftTip)
+            addLine(to: path, from: leftTip, to: point(in: rect, x: 0.34, y: 0.36))
+            addLine(to: path, from: leftTip, to: point(in: rect, x: 0.34, y: 0.64))
+            
+            // Right expanding arrow
+            let rightTip = point(in: rect, x: 0.84, y: 0.5)
+            let rightTail = point(in: rect, x: 0.58, y: 0.5)
+            addLine(to: path, from: rightTail, to: rightTip)
+            addLine(to: path, from: rightTip, to: point(in: rect, x: 0.66, y: 0.36))
+            addLine(to: path, from: rightTip, to: point(in: rect, x: 0.66, y: 0.64))
         }
 
         let bezierPath = NSBezierPath(cgPath: path)

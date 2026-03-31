@@ -33,6 +33,7 @@ enum DockGestureEvent: Equatable {
     case swipeDown(application: DockApplicationTarget)
     case swipeUp(application: DockApplicationTarget)
     case pinchIn(application: DockApplicationTarget)
+    case pinchOut(application: DockApplicationTarget)
 
     var gesture: DockGestureKind {
         switch self {
@@ -46,6 +47,8 @@ enum DockGestureEvent: Equatable {
             return .swipeUp
         case .pinchIn:
             return .pinchIn
+        case .pinchOut:
+            return .pinchOut
         }
     }
 
@@ -55,7 +58,8 @@ enum DockGestureEvent: Equatable {
              .swipeRight(let application),
              .swipeDown(let application),
              .swipeUp(let application),
-             .pinchIn(let application):
+             .pinchIn(let application),
+             .pinchOut(let application):
             return application
         }
     }
@@ -116,10 +120,13 @@ struct DockGestureRecognizer {
         let fingerDistanceDelta = currentFingerDistance - session.startFingerDistance
 
         if
-            fingerDistanceDelta <= -pinchThreshold,
+            abs(fingerDistanceDelta) >= pinchThreshold,
             abs(fingerDistanceDelta) >= translationMagnitude * pinchBiasRatio
         {
             self.session?.hasTriggered = true
+            if fingerDistanceDelta > 0 {
+                return .pinchOut(application: session.application)
+            }
             return .pinchIn(application: session.application)
         }
 

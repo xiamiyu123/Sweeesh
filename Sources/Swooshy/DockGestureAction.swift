@@ -6,6 +6,7 @@ enum DockGestureKind: String, CaseIterable, Codable, Hashable, Identifiable, Sen
     case swipeDown
     case swipeUp
     case pinchIn
+    case pinchOut
 
     var id: String { rawValue }
 
@@ -44,6 +45,12 @@ enum DockGestureKind: String, CaseIterable, Codable, Hashable, Identifiable, Sen
                 localeIdentifier: localeIdentifier,
                 preferredLanguages: preferredLanguages
             )
+        case .pinchOut:
+            return L10n.string(
+                "settings.dock_gestures.gesture.pinch_out",
+                localeIdentifier: localeIdentifier,
+                preferredLanguages: preferredLanguages
+            )
         }
     }
 }
@@ -55,6 +62,7 @@ enum DockGestureAction: String, CaseIterable, Codable, Hashable, Identifiable, S
     case cycleWindowsBackward
     case closeWindow
     case quitApplication
+    case toggleFullScreenWindow
 
     var id: String { rawValue }
 
@@ -99,6 +107,12 @@ enum DockGestureAction: String, CaseIterable, Codable, Hashable, Identifiable, S
                 localeIdentifier: localeIdentifier,
                 preferredLanguages: preferredLanguages
             )
+        case .toggleFullScreenWindow:
+            return L10n.string(
+                "action.toggle_full_screen",
+                localeIdentifier: localeIdentifier,
+                preferredLanguages: preferredLanguages
+            )
         }
     }
 }
@@ -135,6 +149,7 @@ enum DockGestureBindings {
         DockGestureBinding(gesture: .swipeDown, action: .minimizeWindow),
         DockGestureBinding(gesture: .swipeUp, action: .restoreWindow),
         DockGestureBinding(gesture: .pinchIn, action: .quitApplication),
+        DockGestureBinding(gesture: .pinchOut, action: .toggleFullScreenWindow),
     ]
 
     static func fallbackBinding(for gesture: DockGestureKind) -> DockGestureBinding {
@@ -149,6 +164,8 @@ enum DockGestureBindings {
             return DockGestureBinding(gesture: .swipeUp, action: .restoreWindow)
         case .pinchIn:
             return DockGestureBinding(gesture: .pinchIn, action: .quitApplication)
+        case .pinchOut:
+            return DockGestureBinding(gesture: .pinchOut, action: .toggleFullScreenWindow)
         }
     }
 
@@ -199,6 +216,7 @@ enum TitleBarGestureBindings {
         .swipeDown,
         .swipeUp,
         .pinchIn,
+        .pinchOut,
     ]
 
     static let defaults: [TitleBarGestureBinding] = [
@@ -207,6 +225,7 @@ enum TitleBarGestureBindings {
         TitleBarGestureBinding(gesture: .swipeDown, action: .minimize),
         TitleBarGestureBinding(gesture: .swipeUp, action: .center),
         TitleBarGestureBinding(gesture: .pinchIn, action: .closeWindow),
+        TitleBarGestureBinding(gesture: .pinchOut, action: .toggleFullScreen),
     ]
 
     static func fallbackBinding(for gesture: DockGestureKind) -> TitleBarGestureBinding {
@@ -221,6 +240,8 @@ enum TitleBarGestureBindings {
             return TitleBarGestureBinding(gesture: .swipeUp, action: .center)
         case .pinchIn:
             return TitleBarGestureBinding(gesture: .pinchIn, action: .closeWindow)
+        case .pinchOut:
+            return TitleBarGestureBinding(gesture: .pinchOut, action: .toggleFullScreen)
         }
     }
 

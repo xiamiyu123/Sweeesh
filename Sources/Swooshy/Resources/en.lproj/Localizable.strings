@@ -14,6 +14,7 @@
 "action.restore_window" = "Restore Minimized Window";
 "action.close_window" = "Close Window";
 "action.quit_application" = "Quit Application";
+"action.toggle_full_screen" = "Maximize";
 "action.cycle_same_app_windows_forward" = "Cycle Same-App Windows Forward";
 "action.cycle_same_app_windows_backward" = "Cycle Same-App Windows Backward";
 
@@ -120,6 +121,7 @@
 "settings.dock_gestures.gesture.swipe_down" = "Two-finger swipe down";
 "settings.dock_gestures.gesture.swipe_up" = "Two-finger swipe up";
 "settings.dock_gestures.gesture.pinch_in" = "Two-finger pinch in";
+"settings.dock_gestures.gesture.pinch_out" = "Two-finger pinch out";
 "settings.dock_gestures.reset" = "Reset gesture actions";
 "settings.title_bar_gestures.reset" = "Reset title-bar actions";
 "settings.advanced.title_bar_overlay_protection.enabled" = "Ignore gestures when another overlay covers the pointer";

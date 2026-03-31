@@ -304,6 +304,8 @@ final class DockGestureController {
                 _ = try windowManager.closeVisibleWindow(of: application)
             case .quitApplication:
                 _ = try windowManager.quitApplication(matching: application)
+            case .toggleFullScreenWindow:
+                _ = try windowManager.toggleFullScreenWindow(of: application)
             }
         } catch let error as WindowManagerError {
             handleWindowManagerError(error)
@@ -457,7 +459,7 @@ final class DockGestureController {
         case .swipeRight: return  point.x
         case .swipeUp:    return  point.y  // trackpad y increases upward
         case .swipeDown:  return -point.y
-        case .pinchIn:    return 0         // handled separately via finger distance
+        case .pinchIn, .pinchOut: return 0 // handled separately via finger distance
         }
     }
 
@@ -485,13 +487,22 @@ final class DockGestureController {
         var shouldCancel = false
 
         if gestureKind == .pinchIn {
-            // For pinch: track the minimum finger distance (most pinched) as high water mark.
+            // For pinch in: track the minimum finger distance (most pinched) as high water mark.
             let currentDist = hypot(p1.x - p0.x, p1.y - p0.y)
             let pinchHighWater = pendingReleasePinchHighWaterMark ?? currentDist
             if currentDist < pinchHighWater {
                 pendingReleasePinchHighWaterMark = currentDist
             }
             let retreat = currentDist - (pendingReleasePinchHighWaterMark ?? currentDist)
+            shouldCancel = retreat > threshold
+        } else if gestureKind == .pinchOut {
+            // For pinch out: track the maximum finger distance (most spread) as high water mark.
+            let currentDist = hypot(p1.x - p0.x, p1.y - p0.y)
+            let pinchHighWater = pendingReleasePinchHighWaterMark ?? currentDist
+            if currentDist > pinchHighWater {
+                pendingReleasePinchHighWaterMark = currentDist
+            }
+            let retreat = (pendingReleasePinchHighWaterMark ?? currentDist) - currentDist
             shouldCancel = retreat > threshold
         } else {
             // For swipe gestures: track the furthest progress along gesture direction.

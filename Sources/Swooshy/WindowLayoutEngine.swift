@@ -19,7 +19,8 @@ struct WindowLayoutEngine {
              .closeWindow,
              .quitApplication,
              .cycleSameAppWindowsForward,
-             .cycleSameAppWindowsBackward:
+             .cycleSameAppWindowsBackward,
+             .toggleFullScreen:
             return currentWindowFrame
         }
     }

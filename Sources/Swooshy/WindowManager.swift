@@ -91,6 +91,13 @@ struct WindowManager: WindowManaging {
             break
         case .quitApplication:
             return
+        case .toggleFullScreen:
+            let window = try focusedWindowElement(in: appElement)
+            let isFullScreen = isFullScreen(window)
+            if !isFullScreen {
+                try setFullScreen(true, for: window)
+            }
+            return
         }
 
         let screens = NSScreen.screens
@@ -229,6 +236,33 @@ struct WindowManager: WindowManaging {
         try bringWindowToFront(targetWindow, for: app)
         cycleSessions.invalidate(for: app.processIdentifier)
         DebugLog.info(DebugLog.windows, "Restored and raised one minimized window for \(application.logDescription)")
+        return true
+    }
+
+    func toggleFullScreenWindow(of application: DockApplicationTarget) throws -> Bool {
+        guard AXIsProcessTrusted() else {
+            throw WindowManagerError.accessibilityPermissionMissing
+        }
+
+        DebugLog.info(DebugLog.windows, "Attempting to toggle full screen for a visible window of \(application.logDescription)")
+
+        let app = try runningApplication(matching: application)
+        let appElement = AXUIElementCreateApplication(app.processIdentifier)
+        let windows = try orderedVisibleWindowElements(in: app, appElement: appElement)
+        
+        guard let targetWindow = windows.first else {
+            DebugLog.debug(DebugLog.windows, "No visible window found to toggle full screen for \(application.logDescription)")
+            return false
+        }
+
+        try bringWindowToFront(targetWindow, for: app)
+        let currentState = isFullScreen(targetWindow)
+        if !currentState {
+            try setFullScreen(true, for: targetWindow)
+        }
+        
+        cycleSessions.invalidate(for: app.processIdentifier)
+        DebugLog.info(DebugLog.windows, "Entered full screen for one visible window of \(application.logDescription)")
         return true
     }
 
@@ -640,6 +674,22 @@ struct WindowManager: WindowManaging {
             fallbackMessage: "AXFocused=true"
         ) {
             try setBooleanAttribute(kAXFocusedAttribute as CFString, value: true, on: window)
+        }
+    }
+
+    private func isFullScreen(_ window: AXUIElement) -> Bool {
+        AXAttributeReader.bool("AXFullScreen" as CFString, from: window) ?? false
+    }
+
+    private func setFullScreen(_ fullScreen: Bool, for window: AXUIElement) throws {
+        let value: CFTypeRef = fullScreen ? kCFBooleanTrue : kCFBooleanFalse
+        let setError = AXUIElementSetAttributeValue(
+            window,
+            "AXFullScreen" as CFString,
+            value
+        )
+        guard setError == .success else {
+            throw WindowManagerError.unableToPerformAction
         }
     }
 

@@ -166,7 +166,6 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
     @objc
     private func quit() {
-        guard handleMissingPermissionFallback(for: "quit") == false else { return }
         NSApplication.shared.terminate(nil)
     }
 
@@ -252,7 +251,8 @@ final class StatusBarController: NSObject, NSMenuDelegate {
                 keyEquivalent: "q"
             )
             item.target = self
-            item.isEnabled = enforcePermissionLock ? false : entry.isEnabled
+            // Allow clicking Quit even without permission
+            item.isEnabled = entry.isEnabled
             return item
         }
     }

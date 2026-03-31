@@ -123,9 +123,6 @@ brew update
 brew install --cask swooshy
 ```
 
-如果你是通过 Homebrew 升级或卸载，最好先手动退出 `Swooshy`。即使忘了退出，
-当前 cask 也会在升级和卸载时主动尝试关闭应用，尽量避免替换失败。
-
 安装完成后，可以直接从 Launchpad / Spotlight 启动 `Swooshy`，也可以执行：
 
 ```bash

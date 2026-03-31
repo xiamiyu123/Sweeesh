@@ -193,22 +193,26 @@ final class SettingsStore {
             defaultValue: true,
             in: userDefaults
         )
-        self.dockGesturesEnabled = userDefaults.bool(forKey: Keys.dockGesturesEnabled)
-
-        if userDefaults.object(forKey: Keys.titleBarGesturesEnabled) == nil {
-            userDefaults.set(true, forKey: Keys.titleBarGesturesEnabled)
-        }
-        self.titleBarGesturesEnabled = userDefaults.bool(forKey: Keys.titleBarGesturesEnabled)
-        
-        if userDefaults.object(forKey: Keys.smartPinchExitFullScreenEnabled) == nil {
-            userDefaults.set(true, forKey: Keys.smartPinchExitFullScreenEnabled)
-        }
-        self.smartPinchExitFullScreenEnabled = userDefaults.bool(forKey: Keys.smartPinchExitFullScreenEnabled)
-
-        if userDefaults.object(forKey: Keys.titleBarOverlayProtectionEnabled) == nil {
-            userDefaults.set(true, forKey: Keys.titleBarOverlayProtectionEnabled)
-        }
-        self.titleBarOverlayProtectionEnabled = userDefaults.bool(forKey: Keys.titleBarOverlayProtectionEnabled)
+        self.dockGesturesEnabled = Self.boolValue(
+            forKey: Keys.dockGesturesEnabled,
+            defaultValue: true,
+            in: userDefaults
+        )
+        self.titleBarGesturesEnabled = Self.boolValue(
+            forKey: Keys.titleBarGesturesEnabled,
+            defaultValue: true,
+            in: userDefaults
+        )
+        self.smartPinchExitFullScreenEnabled = Self.boolValue(
+            forKey: Keys.smartPinchExitFullScreenEnabled,
+            defaultValue: true,
+            in: userDefaults
+        )
+        self.titleBarOverlayProtectionEnabled = Self.boolValue(
+            forKey: Keys.titleBarOverlayProtectionEnabled,
+            defaultValue: true,
+            in: userDefaults
+        )
         
         self.executeGestureOnRelease = Self.boolValue(
             forKey: Keys.executeGestureOnRelease,

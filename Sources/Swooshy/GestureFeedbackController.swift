@@ -539,18 +539,6 @@ private final class GestureSnapPreviewView: NSView {
         NSColor.controlAccentColor.withAlphaComponent(0.18).setFill()
         path.fill()
 
-        NSColor.white.withAlphaComponent(0.18).setFill()
-        NSBezierPath(
-            roundedRect: NSRect(
-                x: previewRect.minX + 1,
-                y: previewRect.midY,
-                width: max(0, previewRect.width - 2),
-                height: max(0, (previewRect.height / 2) - 1)
-            ),
-            xRadius: max(0, cornerRadius - 3),
-            yRadius: max(0, cornerRadius - 3)
-        ).fill()
-
         NSColor.controlAccentColor.withAlphaComponent(0.62).setStroke()
         path.lineWidth = strokeWidth
         path.stroke()

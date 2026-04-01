@@ -131,6 +131,7 @@ private struct SettingsView: View {
                     settingsStore.localized("settings.title_bar_gestures.enabled"),
                     isOn: $settingsStore.titleBarGesturesEnabled
                 )
+
                 VStack(alignment: .leading, spacing: 12) {
                     Text(settingsStore.localized("guide.page.interaction.title"))
                         .font(.subheadline.weight(.medium))
@@ -310,7 +311,10 @@ private struct AdvancedSettingsSheet: View {
                         range: SettingsStore.minimumTitleBarCornerDragHoldDuration ... SettingsStore.maximumTitleBarCornerDragHoldDuration,
                         step: 0.1
                     )
-                    .disabled(settingsStore.titleBarGesturesEnabled == false)
+                    .disabled(
+                        (settingsStore.dockGesturesEnabled == false || settingsStore.dockCornerDragSnapEnabled == false) &&
+                            (settingsStore.titleBarGesturesEnabled == false || settingsStore.titleBarCornerDragSnapEnabled == false)
+                    )
                 } header: {
                     Text(settingsStore.localized("settings.advanced.section.sensitivity"))
                 }
@@ -515,6 +519,12 @@ private struct DockGestureMappingsSection: View {
         VStack(alignment: .leading, spacing: 14) {
             SettingsSectionHeader(title: settingsStore.localized("settings.section.dock_gestures"))
 
+            Toggle(
+                settingsStore.localized("settings.dock_gestures.corner_drag.enabled"),
+                isOn: $settingsStore.dockCornerDragSnapEnabled
+            )
+            .disabled(settingsStore.dockGesturesEnabled == false)
+
             SettingsMappingCard {
                 ForEach(Array(DockGestureKind.allCases.enumerated()), id: \.element) { index, gesture in
                     DockGestureActionRow(settingsStore: settingsStore, gesture: gesture)
@@ -546,6 +556,12 @@ private struct TitleBarGestureMappingsSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             SettingsSectionHeader(title: settingsStore.localized("settings.section.title_bar_gestures"))
+
+            Toggle(
+                settingsStore.localized("settings.title_bar_gestures.corner_drag.enabled"),
+                isOn: $settingsStore.titleBarCornerDragSnapEnabled
+            )
+            .disabled(settingsStore.titleBarGesturesEnabled == false)
 
             SettingsMappingCard {
                 ForEach(Array(TitleBarGestureBindings.supportedGestures.enumerated()), id: \.element) { index, gesture in

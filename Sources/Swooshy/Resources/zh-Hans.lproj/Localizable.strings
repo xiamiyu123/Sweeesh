@@ -137,8 +137,10 @@
 "settings.dock_gestures.gesture.swipe_up" = "双指上滑";
 "settings.dock_gestures.gesture.pinch_in" = "双指捏合";
 "settings.dock_gestures.gesture.pinch_out" = "双指张开";
+"settings.dock_gestures.corner_drag.enabled" = "长按进入角落贴靠模式";
 "settings.dock_gestures.reset" = "恢复默认手势动作";
 "settings.title_bar_gestures.reset" = "恢复标题栏默认动作";
+"settings.title_bar_gestures.corner_drag.enabled" = "长按进入角落贴靠模式";
 "settings.advanced.title_bar_overlay_protection.enabled" = "当指针被其他覆盖层遮挡时忽略手势";
 "settings.advanced.title_bar_overlay_protection.footer" = "启用保护能避免 Swooshy 在其它独立菜单浮窗或其它基于叠加层窗口控制界面的 App 上产生不必要的手势误触。Swooshy 会确保在你开始手势前应用已被完全激活，并且没有其它叠加层挡住你的操作区域。但在偶尔某些特定边缘情况下，系统未及时上报正确的鼠标位置时，这也许会阻挡个别正常的手势。如果你想不计前提始终强行触发标题栏手势，可以关闭该选项。";
 "settings.advanced.smart_pinch_exit_full_screen.enabled" = "全屏状态下捏合退出全屏";

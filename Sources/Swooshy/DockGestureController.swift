@@ -63,7 +63,8 @@ final class DockGestureController {
     }
 
     private struct MonitoringState: Equatable {
-        let cornerDragEnabled: Bool
+        let dockCornerDragEnabled: Bool
+        let titleBarCornerDragEnabled: Bool
         let dockGesturesEnabled: Bool
         let titleBarGesturesEnabled: Bool
     }
@@ -195,7 +196,8 @@ final class DockGestureController {
         }
 
         let state = MonitoringState(
-            cornerDragEnabled: settingsStore.cornerDragSnapEnabled,
+            dockCornerDragEnabled: settingsStore.dockCornerDragSnapEnabled,
+            titleBarCornerDragEnabled: settingsStore.titleBarCornerDragSnapEnabled,
             dockGesturesEnabled: settingsStore.dockGesturesEnabled,
             titleBarGesturesEnabled: settingsStore.titleBarGesturesEnabled
         )
@@ -262,7 +264,8 @@ final class DockGestureController {
 
         let dockGesturesEnabled = settingsStore.dockGesturesEnabled
         let titleBarGesturesEnabled = settingsStore.titleBarGesturesEnabled
-        let cornerDragEnabled = settingsStore.cornerDragSnapEnabled
+        let dockCornerDragEnabled = dockGesturesEnabled && settingsStore.dockCornerDragSnapEnabled
+        let titleBarCornerDragEnabled = titleBarGesturesEnabled && settingsStore.titleBarCornerDragSnapEnabled
         guard dockGesturesEnabled || titleBarGesturesEnabled else { return }
 
         let touchCount = frame.touches.count
@@ -317,8 +320,8 @@ final class DockGestureController {
         }
 
         let cornerDragSessionActive = activeCornerDragApplication != nil ||
-            (cornerDragEnabled && dockCornerDragRecognizer.isActive) ||
-            (cornerDragEnabled && titleBarCornerDragRecognizer.isActive)
+            (dockCornerDragEnabled && dockCornerDragRecognizer.isActive) ||
+            (titleBarCornerDragEnabled && titleBarCornerDragRecognizer.isActive)
         let needsDockLookup = dockGesturesEnabled &&
             dockRecognizer.requiresHoveredApplication &&
             cornerDragSessionActive == false
@@ -361,7 +364,7 @@ final class DockGestureController {
         }
 #endif
 
-        if cornerDragEnabled, dockGesturesEnabled {
+        if dockCornerDragEnabled {
             let dockCornerDragEvent = dockCornerDragRecognizer.process(
                 frame: frame,
                 hoveredApplication: hoveredDockApplication
@@ -377,7 +380,7 @@ final class DockGestureController {
             }
         }
 
-        if cornerDragEnabled, titleBarGesturesEnabled {
+        if titleBarCornerDragEnabled {
             let cornerDragEvent = titleBarCornerDragRecognizer.process(
                 frame: frame,
                 hoveredApplication: hoveredTitleBarTarget?.source == .titleBar

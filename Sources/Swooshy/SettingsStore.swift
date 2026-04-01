@@ -48,6 +48,24 @@ final class SettingsStore {
         }
     }
 
+    var dockCornerDragSnapEnabled: Bool {
+        didSet {
+            guard oldValue != dockCornerDragSnapEnabled else { return }
+            userDefaults.set(dockCornerDragSnapEnabled, forKey: Keys.dockCornerDragSnapEnabled)
+            DebugLog.info(DebugLog.settings, "Dock corner drag snap enabled set to \(dockCornerDragSnapEnabled)")
+            notifyDidChange()
+        }
+    }
+
+    var titleBarCornerDragSnapEnabled: Bool {
+        didSet {
+            guard oldValue != titleBarCornerDragSnapEnabled else { return }
+            userDefaults.set(titleBarCornerDragSnapEnabled, forKey: Keys.titleBarCornerDragSnapEnabled)
+            DebugLog.info(DebugLog.settings, "Title-bar corner drag snap enabled set to \(titleBarCornerDragSnapEnabled)")
+            notifyDidChange()
+        }
+    }
+
     var titleBarOverlayProtectionEnabled: Bool {
         didSet {
             guard oldValue != titleBarOverlayProtectionEnabled else { return }
@@ -273,6 +291,16 @@ final class SettingsStore {
             defaultValue: true,
             in: userDefaults
         )
+        self.dockCornerDragSnapEnabled = Self.boolValue(
+            forKey: Keys.dockCornerDragSnapEnabled,
+            defaultValue: true,
+            in: userDefaults
+        )
+        self.titleBarCornerDragSnapEnabled = Self.boolValue(
+            forKey: Keys.titleBarCornerDragSnapEnabled,
+            defaultValue: true,
+            in: userDefaults
+        )
         self.smartPinchExitFullScreenEnabled = Self.boolValue(
             forKey: Keys.smartPinchExitFullScreenEnabled,
             defaultValue: true,
@@ -364,6 +392,8 @@ final class SettingsStore {
             Keys.hotKeysEnabled,
             Keys.dockGesturesEnabled,
             Keys.titleBarGesturesEnabled,
+            Keys.dockCornerDragSnapEnabled,
+            Keys.titleBarCornerDragSnapEnabled,
             Keys.titleBarOverlayProtectionEnabled,
             Keys.smartBrowserTabCloseEnabled,
             Keys.executeGestureOnRelease,
@@ -700,6 +730,8 @@ final class SettingsStore {
         static let hotKeysEnabled = "settings.hotKeysEnabled"
         static let dockGesturesEnabled = "settings.dockGesturesEnabled"
         static let titleBarGesturesEnabled = "settings.titleBarGesturesEnabled"
+        static let dockCornerDragSnapEnabled = "settings.dockCornerDragSnapEnabled"
+        static let titleBarCornerDragSnapEnabled = "settings.titleBarCornerDragSnapEnabled"
         static let titleBarOverlayProtectionEnabled = "settings.titleBarOverlayProtectionEnabled"
         static let smartPinchExitFullScreenEnabled = "settings.smartPinchExitFullScreenEnabled"
         static let smartBrowserTabCloseEnabled = "settings.smartBrowserTabCloseEnabled"

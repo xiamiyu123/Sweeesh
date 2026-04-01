@@ -137,8 +137,10 @@
 "settings.dock_gestures.gesture.swipe_up" = "Two-finger swipe up";
 "settings.dock_gestures.gesture.pinch_in" = "Two-finger pinch in";
 "settings.dock_gestures.gesture.pinch_out" = "Two-finger pinch out";
+"settings.dock_gestures.corner_drag.enabled" = "Long press to enter corner snap mode";
 "settings.dock_gestures.reset" = "Reset gesture actions";
 "settings.title_bar_gestures.reset" = "Reset title-bar actions";
+"settings.title_bar_gestures.corner_drag.enabled" = "Long press to enter corner snap mode";
 "settings.advanced.title_bar_overlay_protection.enabled" = "Ignore gestures when another overlay covers the pointer";
 "settings.advanced.title_bar_overlay_protection.footer" = "Enabling this reduces unintended gestures by checking that Swooshy only targets the intended app when triggering a Dock or Title-bar gesture. This prevents accidentally swiping on unrelated pop-ups, notifications, or overlay-based app windows.";
 "settings.advanced.smart_pinch_exit_full_screen.enabled" = "Smart Pinch In to Exit Full Screen";

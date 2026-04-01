@@ -333,14 +333,26 @@ final class DockGestureController {
             }
         }
 
-        // Some trackpads do not reliably emit a zero-touch frame at the end of a
-        // two-finger gesture, so losing the second finger also counts as release.
-        if touchCount < 2, previousTouchCount == 2 {
+        if let interruption = gestureSessionTouchInterruption(
+            touchCount: touchCount,
+            previousTouchCount: previousTouchCount,
+            hasPendingReleaseAction: pendingReleaseAction != nil,
+            hasActiveCornerDrag: activeCornerDragApplication != nil
+        ) {
             if dockCornerDragRecognizer.isActive || titleBarCornerDragRecognizer.isActive {
                 resetCornerDragSession(dismissFeedback: pendingReleaseAction == nil)
             }
             if pendingReleaseAction != nil {
-                executePendingReleaseAction()
+                switch interruption {
+                case .release:
+                    executePendingReleaseAction()
+                case .invalidAdditionalTouch:
+                    DebugLog.info(
+                        DebugLog.dock,
+                        "Detected \(touchCount)-finger interruption while waiting for a two-finger release; cancelling pending gesture state"
+                    )
+                    cancelPendingReleaseAction()
+                }
             }
             // Still let recognizers see the zero-touch frame.
         }
@@ -1416,6 +1428,32 @@ struct TwoFingerTouchSequenceTracker {
 
         return frame.touches.map(\.identifier).sorted()
     }
+}
+
+enum GestureSessionTouchInterruption: Equatable {
+    case release
+    case invalidAdditionalTouch
+}
+
+func gestureSessionTouchInterruption(
+    touchCount: Int,
+    previousTouchCount: Int,
+    hasPendingReleaseAction: Bool,
+    hasActiveCornerDrag: Bool
+) -> GestureSessionTouchInterruption? {
+    if touchCount < 2, previousTouchCount == 2 {
+        return .release
+    }
+
+    guard touchCount > 2 else {
+        return nil
+    }
+
+    if hasPendingReleaseAction || hasActiveCornerDrag {
+        return .invalidAdditionalTouch
+    }
+
+    return nil
 }
 
 func cornerDragAction(

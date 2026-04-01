@@ -685,6 +685,42 @@ struct DockSwipeGestureRecognizerTests {
     }
 
     @Test
+    func pendingReleaseGestureCancelsWhenAThirdFingerInterrupts() {
+        #expect(
+            gestureSessionTouchInterruption(
+                touchCount: 3,
+                previousTouchCount: 2,
+                hasPendingReleaseAction: true,
+                hasActiveCornerDrag: false
+            ) == .invalidAdditionalTouch
+        )
+    }
+
+    @Test
+    func activeCornerDragCancelsWhenAThirdFingerInterrupts() {
+        #expect(
+            gestureSessionTouchInterruption(
+                touchCount: 3,
+                previousTouchCount: 2,
+                hasPendingReleaseAction: false,
+                hasActiveCornerDrag: true
+            ) == .invalidAdditionalTouch
+        )
+    }
+
+    @Test
+    func twoFingerReleaseStillExecutesOnLift() {
+        #expect(
+            gestureSessionTouchInterruption(
+                touchCount: 1,
+                previousTouchCount: 2,
+                hasPendingReleaseAction: true,
+                hasActiveCornerDrag: false
+            ) == .release
+        )
+    }
+
+    @Test
     func multitouchMonitorDeliversZeroTouchFramesWhenCallbackPayloadIsNil() {
         let monitor = MultitouchInputMonitor()
         var deliveredFrames: [TrackpadTouchFrame] = []

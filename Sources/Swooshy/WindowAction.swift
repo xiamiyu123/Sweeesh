@@ -17,6 +17,38 @@ enum WindowAction: Int, CaseIterable, Codable, Hashable, Sendable {
         title()
     }
 
+    var supportsSnapPreview: Bool {
+        previewBehavior != nil
+    }
+
+    var previewBehavior: WindowActionPreviewBehavior? {
+        switch self {
+        case .leftHalf:
+            return .area(
+                defaultHorizontalAnchor: .leadingEdge,
+                defaultVerticalAnchor: .leadingEdge
+            )
+        case .rightHalf:
+            return .area(
+                defaultHorizontalAnchor: .trailingEdge,
+                defaultVerticalAnchor: .leadingEdge
+            )
+        case .maximize, .center:
+            return .area(
+                defaultHorizontalAnchor: .leadingEdge,
+                defaultVerticalAnchor: .leadingEdge
+            )
+        case .minimize,
+             .closeWindow,
+             .closeTab,
+             .quitApplication,
+             .cycleSameAppWindowsForward,
+             .cycleSameAppWindowsBackward,
+             .toggleFullScreen:
+            return nil
+        }
+    }
+
     func title(
         localeIdentifier: String? = nil,
         preferredLanguages: [String] = Locale.preferredLanguages
@@ -117,4 +149,11 @@ enum WindowAction: Int, CaseIterable, Codable, Hashable, Sendable {
             return "0"
         }
     }
+}
+
+enum WindowActionPreviewBehavior: Equatable, Sendable {
+    case area(
+        defaultHorizontalAnchor: WindowActionPreview.AxisAnchor,
+        defaultVerticalAnchor: WindowActionPreview.AxisAnchor
+    )
 }

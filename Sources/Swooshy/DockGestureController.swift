@@ -264,7 +264,8 @@ final class DockGestureController {
             gestureTitle: event.gesture.title(preferredLanguages: settingsStore.preferredLanguages),
             actionTitle: action.title(preferredLanguages: settingsStore.preferredLanguages),
             anchor: anchorPoint,
-            persistent: persistent
+            persistent: persistent,
+            preview: nil
         )
         DebugLog.info(
             DebugLog.dock,
@@ -382,12 +383,14 @@ final class DockGestureController {
         }
 
         let persistent = settingsStore.executeGestureOnRelease
+        let preview = persistent ? snapPreview(for: action, anchorPoint: anchorPoint) : nil
         gestureFeedbackPresenter.show(
             gesture: event.gesture,
             gestureTitle: event.gesture.title(preferredLanguages: settingsStore.preferredLanguages),
             actionTitle: actionTitle,
             anchor: anchorPoint,
-            persistent: persistent
+            persistent: persistent,
+            preview: preview
         )
         DebugLog.info(
             DebugLog.dock,
@@ -462,6 +465,18 @@ final class DockGestureController {
 
     private func titleBarAction(for gesture: DockGestureKind) -> WindowAction? {
         settingsStore.titleBarGestureAction(for: gesture)
+    }
+
+    private func snapPreview(for action: WindowAction, anchorPoint: CGPoint) -> WindowActionPreview? {
+        guard action.supportsSnapPreview else {
+            return nil
+        }
+
+        return try? windowManager.previewTarget(
+            for: action,
+            layoutEngine: layoutEngine,
+            preferredAppKitPoint: anchorPoint
+        )
     }
 
     private func shouldReplaceWithBrowserTabClose(

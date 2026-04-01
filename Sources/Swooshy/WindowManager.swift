@@ -21,6 +21,55 @@ private enum FrameWriteOrder: String {
     }
 }
 
+private enum FrameApplicationOutcome {
+    case exact(CGRect)
+    case constrained(CGRect)
+}
+
+@MainActor
+private final class ObservedWindowConstraintStore {
+    private var observationsByApplicationKey: [String: [WindowAction: WindowActionPreview.Observation]] = [:]
+
+    func observation(
+        for applicationKey: String,
+        action: WindowAction
+    ) -> WindowActionPreview.Observation? {
+        observationsByApplicationKey[applicationKey]?[action]
+    }
+
+    func record(
+        minimumSize: CGSize,
+        horizontalAnchor: WindowActionPreview.AxisAnchor?,
+        verticalAnchor: WindowActionPreview.AxisAnchor?,
+        action: WindowAction,
+        for applicationKey: String
+    ) {
+        var observations = observationsByApplicationKey[applicationKey] ?? [:]
+
+        if var existingObservation = observations[action] {
+            existingObservation.minimumSize = CGSize(
+                width: max(existingObservation.minimumSize.width, minimumSize.width),
+                height: max(existingObservation.minimumSize.height, minimumSize.height)
+            )
+            if let horizontalAnchor {
+                existingObservation.horizontalAnchor = horizontalAnchor
+            }
+            if let verticalAnchor {
+                existingObservation.verticalAnchor = verticalAnchor
+            }
+            observations[action] = existingObservation
+        } else {
+            observations[action] = WindowActionPreview.Observation(
+                minimumSize: minimumSize,
+                horizontalAnchor: horizontalAnchor,
+                verticalAnchor: verticalAnchor
+            )
+        }
+
+        observationsByApplicationKey[applicationKey] = observations
+    }
+}
+
 @MainActor
 protocol WindowManaging {
     func perform(_ action: WindowAction, layoutEngine: WindowLayoutEngine) throws
@@ -30,6 +79,14 @@ protocol WindowManaging {
 struct WindowManager: WindowManaging {
     private let windowOrdering = WindowOrdering()
     private let cycleSessions = WindowCycleSessionStore()
+    private let observedWindowConstraintStore = ObservedWindowConstraintStore()
+
+    private struct ResolvedWindowActionLayout {
+        let focusedWindow: AXUIElement
+        let screenGeometry: ScreenGeometry
+        let targetFrame: CGRect
+        let targetAXFrame: CGRect
+    }
 
     func perform(_ action: WindowAction, layoutEngine: WindowLayoutEngine) throws {
         try perform(
@@ -105,11 +162,81 @@ struct WindowManager: WindowManaging {
             return
         }
 
+        let resolvedLayout = try resolvedWindowActionLayout(
+            for: action,
+            application: app,
+            appElement: appElement,
+            layoutEngine: layoutEngine,
+            preferredAppKitPoint: preferredAppKitPoint
+        )
+
+        let frameOutcome = try setFrame(resolvedLayout.targetAXFrame, for: resolvedLayout.focusedWindow)
+        let appliedAXFrame: CGRect
+        switch frameOutcome {
+        case .exact(let frame), .constrained(let frame):
+            appliedAXFrame = frame
+        }
+
+        let appliedAppKitFrame = resolvedLayout.screenGeometry.appKitFrame(fromAXFrame: appliedAXFrame)
+        recordObservedConstraintIfNeeded(
+            requestedFrame: resolvedLayout.targetFrame,
+            appliedFrame: appliedAppKitFrame,
+            action: action,
+            application: app
+        )
+        DebugLog.debug(
+            DebugLog.windows,
+            "Read back window frame after \(String(describing: action)): AX \(NSStringFromRect(appliedAXFrame)), AppKit \(NSStringFromRect(appliedAppKitFrame))"
+        )
+    }
+
+    func previewTarget(
+        for action: WindowAction,
+        layoutEngine: WindowLayoutEngine,
+        preferredAppKitPoint: CGPoint?
+    ) throws -> WindowActionPreview? {
+        guard action.supportsSnapPreview else {
+            throw WindowManagerError.unableToPerformAction
+        }
+
+        let app = try frontmostApplication()
+        let appElement = AXUIElementCreateApplication(app.processIdentifier)
+        let resolvedLayout = try resolvedWindowActionLayout(
+            for: action,
+            application: app,
+            appElement: appElement,
+            layoutEngine: layoutEngine,
+            preferredAppKitPoint: preferredAppKitPoint
+        )
+        let observedObservation = observedConstraintObservation(for: app, action: action)
+        return layoutEngine.preview(
+            for: action,
+            targetFrame: resolvedLayout.targetFrame,
+            observation: observedObservation
+        )
+    }
+
+    private func frontmostApplication() throws -> NSRunningApplication {
+        guard let app = NSWorkspace.shared.frontmostApplication else {
+            throw WindowManagerError.noFrontmostApplication
+        }
+
+        return app
+    }
+
+    private func resolvedWindowActionLayout(
+        for action: WindowAction,
+        application: NSRunningApplication,
+        appElement: AXUIElement,
+        layoutEngine: WindowLayoutEngine,
+        preferredAppKitPoint: CGPoint?
+    ) throws -> ResolvedWindowActionLayout {
         let screens = NSScreen.screens
         guard screens.isEmpty == false else {
             throw WindowManagerError.unableToResolveScreen
         }
         logScreenConfiguration(screens, preferredAppKitPoint: preferredAppKitPoint)
+
         let screenGeometry = ScreenGeometry(screenFrames: screens.map(\.frame))
         let focusedWindow = try focusedWindowElement(in: appElement)
         let currentAXFrame = try frame(of: focusedWindow)
@@ -117,22 +244,17 @@ struct WindowManager: WindowManaging {
         logFrameRead(
             for: focusedWindow,
             action: action,
-            application: app,
+            application: application,
             axFrame: currentAXFrame,
             appKitFrame: currentFrame
         )
+
         let screenFrames = screens.map(\.visibleFrame)
-
-        let preferredScreenFrame = preferredAppKitPoint.flatMap { preferredPoint in
-            screenFrames.first { $0.contains(preferredPoint) }
-        }
-
-        let currentScreenFrame = preferredScreenFrame ?? layoutEngine.screenContainingMost(
-            of: currentFrame,
-            in: screenFrames
-        )
-
-        guard let currentScreenFrame else {
+        guard let currentScreenFrame = layoutEngine.resolvedVisibleFrame(
+            preferredPoint: preferredAppKitPoint,
+            currentWindowFrame: currentFrame,
+            screenFrames: screenFrames
+        ) else {
             throw WindowManagerError.unableToResolveScreen
         }
 
@@ -141,7 +263,10 @@ struct WindowManager: WindowManaging {
             "Resolved current visible frame for action \(String(describing: action)): \(NSStringFromRect(currentScreenFrame))"
         )
 
-        if let preferredAppKitPoint, let preferredScreenFrame {
+        if
+            let preferredAppKitPoint,
+            let preferredScreenFrame = screenFrames.first(where: { $0.contains(preferredAppKitPoint) })
+        {
             DebugLog.debug(
                 DebugLog.windows,
                 "Resolved target screen from preferred point \(NSStringFromPoint(preferredAppKitPoint)): \(NSStringFromRect(preferredScreenFrame))"
@@ -165,29 +290,139 @@ struct WindowManager: WindowManaging {
             "Writing target AX frame \(NSStringFromRect(targetAXFrame)) converted from AppKit target \(NSStringFromRect(targetFrame))"
         )
 
-        try setFrame(targetAXFrame, for: focusedWindow)
-
-        do {
-            let appliedAXFrame = try frame(of: focusedWindow)
-            let appliedAppKitFrame = screenGeometry.appKitFrame(fromAXFrame: appliedAXFrame)
-            DebugLog.debug(
-                DebugLog.windows,
-                "Read back window frame after \(String(describing: action)): AX \(NSStringFromRect(appliedAXFrame)), AppKit \(NSStringFromRect(appliedAppKitFrame))"
-            )
-        } catch {
-            DebugLog.error(
-                DebugLog.windows,
-                "Failed to read back window frame after \(String(describing: action)): \(error.localizedDescription)"
-            )
-        }
+        return ResolvedWindowActionLayout(
+            focusedWindow: focusedWindow,
+            screenGeometry: screenGeometry,
+            targetFrame: targetFrame,
+            targetAXFrame: targetAXFrame
+        )
     }
 
-    private func frontmostApplication() throws -> NSRunningApplication {
-        guard let app = NSWorkspace.shared.frontmostApplication else {
-            throw WindowManagerError.noFrontmostApplication
+    private func observedConstraintObservation(
+        for application: NSRunningApplication,
+        action: WindowAction
+    ) -> WindowActionPreview.Observation? {
+        observedWindowConstraintStore.observation(
+            for: observationKey(for: application),
+            action: action
+        )
+    }
+
+    private func recordObservedConstraintSize(
+        _ size: CGSize,
+        horizontalAnchor: WindowActionPreview.AxisAnchor?,
+        verticalAnchor: WindowActionPreview.AxisAnchor?,
+        action: WindowAction,
+        for application: NSRunningApplication
+    ) {
+        observedWindowConstraintStore.record(
+            minimumSize: size,
+            horizontalAnchor: horizontalAnchor,
+            verticalAnchor: verticalAnchor,
+            action: action,
+            for: observationKey(for: application)
+        )
+    }
+
+    private func observationKey(for application: NSRunningApplication) -> String {
+        if let bundleIdentifier = application.bundleIdentifier, bundleIdentifier.isEmpty == false {
+            return bundleIdentifier
         }
 
-        return app
+        if let localizedName = application.localizedName, localizedName.isEmpty == false {
+            return "name:\(localizedName)"
+        }
+
+        return "pid:\(application.processIdentifier)"
+    }
+
+    private func recordObservedConstraintIfNeeded(
+        requestedFrame: CGRect,
+        appliedFrame: CGRect,
+        action: WindowAction,
+        application: NSRunningApplication
+    ) {
+        guard action.supportsSnapPreview else {
+            return
+        }
+
+        let widthExpanded = appliedFrame.width > requestedFrame.width + 1
+        let heightExpanded = appliedFrame.height > requestedFrame.height + 1
+        guard widthExpanded || heightExpanded else {
+            return
+        }
+
+        let observedMinimumSize = CGSize(
+            width: max(appliedFrame.width, requestedFrame.width),
+            height: max(appliedFrame.height, requestedFrame.height)
+        )
+        let previewObservation = observedPreviewObservation(
+            requestedFrame: requestedFrame,
+            appliedFrame: appliedFrame
+        )
+        recordObservedConstraintSize(
+            observedMinimumSize,
+            horizontalAnchor: previewObservation.horizontalAnchor,
+            verticalAnchor: previewObservation.verticalAnchor,
+            action: action,
+            for: application
+        )
+        DebugLog.debug(
+            DebugLog.windows,
+            "Recorded observed window constraint size \(NSStringFromSize(observedMinimumSize)) for \(application.bundleIdentifier ?? application.localizedName ?? "unknown") after requested \(NSStringFromRect(requestedFrame)) applied as \(NSStringFromRect(appliedFrame)); horizontalAnchor = \(String(describing: previewObservation.horizontalAnchor)), verticalAnchor = \(String(describing: previewObservation.verticalAnchor))"
+        )
+    }
+
+    private func observedPreviewObservation(
+        requestedFrame: CGRect,
+        appliedFrame: CGRect,
+        tolerance: CGFloat = 1
+    ) -> WindowActionPreview.Observation {
+        WindowActionPreview.Observation(
+            minimumSize: CGSize(
+                width: max(appliedFrame.width, requestedFrame.width),
+                height: max(appliedFrame.height, requestedFrame.height)
+            ),
+            horizontalAnchor: observedAnchor(
+                requestedMin: requestedFrame.minX,
+                requestedMax: requestedFrame.maxX,
+                appliedMin: appliedFrame.minX,
+                appliedMax: appliedFrame.maxX,
+                tolerance: tolerance
+            ),
+            verticalAnchor: observedAnchor(
+                requestedMin: requestedFrame.minY,
+                requestedMax: requestedFrame.maxY,
+                appliedMin: appliedFrame.minY,
+                appliedMax: appliedFrame.maxY,
+                tolerance: tolerance
+            )
+        )
+    }
+
+    private func observedAnchor(
+        requestedMin: CGFloat,
+        requestedMax: CGFloat,
+        appliedMin: CGFloat,
+        appliedMax: CGFloat,
+        tolerance: CGFloat
+    ) -> WindowActionPreview.AxisAnchor? {
+        let matchesLeadingEdge = abs(appliedMin - requestedMin) <= tolerance
+        let matchesTrailingEdge = abs(appliedMax - requestedMax) <= tolerance
+        let requestedMidpoint = (requestedMin + requestedMax) / 2
+        let appliedMidpoint = (appliedMin + appliedMax) / 2
+        let matchesCenter = abs(appliedMidpoint - requestedMidpoint) <= tolerance
+
+        if matchesLeadingEdge && matchesTrailingEdge == false {
+            return .leadingEdge
+        }
+        if matchesTrailingEdge && matchesLeadingEdge == false {
+            return .trailingEdge
+        }
+        if matchesCenter {
+            return .centered
+        }
+        return nil
     }
 
     func minimizeVisibleWindow(of application: DockApplicationTarget) throws -> Bool {
@@ -879,7 +1114,7 @@ struct WindowManager: WindowManaging {
         return child
     }
 
-    private func setFrame(_ frame: CGRect, for window: AXUIElement) throws {
+    private func setFrame(_ frame: CGRect, for window: AXUIElement) throws -> FrameApplicationOutcome {
         var size = CGSize(width: max(1, frame.width), height: max(1, frame.height))
         var origin = CGPoint(x: frame.origin.x, y: frame.origin.y)
 
@@ -914,7 +1149,7 @@ struct WindowManager: WindowManaging {
         )
 
         guard let appliedFrame = readFrameBestEffort(of: window, context: "after \(preferredOrder.rawValue) frame write") else {
-            return
+            return .exact(frame)
         }
 
         if framesAreClose(appliedFrame, frame) == false {
@@ -934,8 +1169,7 @@ struct WindowManager: WindowManaging {
             )
 
             guard
-                let retriedFrame = readFrameBestEffort(of: window, context: "after \(fallbackOrder.rawValue) frame write"),
-                framesAreClose(retriedFrame, frame)
+                let retriedFrame = readFrameBestEffort(of: window, context: "after \(fallbackOrder.rawValue) frame write")
             else {
                 let finalFrame = readFrameBestEffort(of: window, context: "final frame read after mismatch")
                     .map(NSStringFromRect) ?? "unavailable"
@@ -945,7 +1179,28 @@ struct WindowManager: WindowManaging {
                 )
                 throw WindowManagerError.unableToSetFrame
             }
+
+            if framesAreClose(retriedFrame, frame) {
+                return .exact(retriedFrame)
+            }
+
+            if isConstraintLimitedFrame(retriedFrame, comparedTo: frame) {
+                DebugLog.info(
+                    DebugLog.windows,
+                    "Accepted constrained frame for window \(windowSummary([window])). Requested = \(NSStringFromRect(frame)), applied = \(NSStringFromRect(retriedFrame))"
+                )
+                return .constrained(retriedFrame)
+            }
+
+            let finalFrame = NSStringFromRect(retriedFrame)
+            DebugLog.error(
+                DebugLog.accessibility,
+                "Failed to apply requested frame for window \(windowSummary([window])). Requested origin = \(NSStringFromPoint(origin)), size = \(NSStringFromSize(size)), final AX frame = \(finalFrame)"
+            )
+            throw WindowManagerError.unableToSetFrame
         }
+
+        return .exact(appliedFrame)
     }
 
     private func readFrameBestEffort(of window: AXUIElement, context: String) -> CGRect? {
@@ -1008,6 +1263,26 @@ struct WindowManager: WindowManaging {
         abs(lhs.minY - rhs.minY) <= tolerance &&
         abs(lhs.width - rhs.width) <= tolerance &&
         abs(lhs.height - rhs.height) <= tolerance
+    }
+
+    private func isConstraintLimitedFrame(
+        _ appliedFrame: CGRect,
+        comparedTo targetFrame: CGRect,
+        tolerance: CGFloat = 1
+    ) -> Bool {
+        let anchoredToRequestedOrigin =
+            abs(appliedFrame.minX - targetFrame.minX) <= tolerance &&
+            abs(appliedFrame.minY - targetFrame.minY) <= tolerance
+        let anchoredToRequestedMaxX =
+            abs(appliedFrame.maxX - targetFrame.maxX) <= tolerance &&
+            abs(appliedFrame.minY - targetFrame.minY) <= tolerance
+
+        let widthExpanded = appliedFrame.width >= targetFrame.width - tolerance
+        let heightExpanded = appliedFrame.height >= targetFrame.height - tolerance
+        let materiallyDifferent = framesAreClose(appliedFrame, targetFrame, tolerance: tolerance) == false
+
+        return materiallyDifferent && widthExpanded && heightExpanded &&
+            (anchoredToRequestedOrigin || anchoredToRequestedMaxX)
     }
 
     private func logScreenConfiguration(_ screens: [NSScreen], preferredAppKitPoint: CGPoint?) {

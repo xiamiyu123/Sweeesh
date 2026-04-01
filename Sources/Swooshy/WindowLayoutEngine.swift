@@ -1,5 +1,26 @@
 import CoreGraphics
 
+struct WindowActionPreview: Equatable, Sendable {
+    enum Style: Equatable, Sendable {
+        case area
+    }
+
+    enum AxisAnchor: Equatable, Sendable {
+        case leadingEdge
+        case trailingEdge
+        case centered
+    }
+
+    struct Observation: Equatable, Sendable {
+        var minimumSize: CGSize
+        var horizontalAnchor: AxisAnchor?
+        var verticalAnchor: AxisAnchor?
+    }
+
+    let frame: CGRect
+    let style: Style
+}
+
 struct WindowLayoutEngine {
     func targetFrame(
         for action: WindowAction,
@@ -23,6 +44,27 @@ struct WindowLayoutEngine {
              .cycleSameAppWindowsBackward,
              .toggleFullScreen:
             return currentWindowFrame
+        }
+    }
+
+    func preview(
+        for action: WindowAction,
+        targetFrame: CGRect,
+        observation: WindowActionPreview.Observation?
+    ) -> WindowActionPreview? {
+        guard let previewBehavior = action.previewBehavior else {
+            return nil
+        }
+
+        switch previewBehavior {
+        case .area(let defaultHorizontalAnchor, let defaultVerticalAnchor):
+            let frame = areaPreviewFrame(
+                targetFrame: targetFrame,
+                observation: observation,
+                defaultHorizontalAnchor: defaultHorizontalAnchor,
+                defaultVerticalAnchor: defaultVerticalAnchor
+            )
+            return WindowActionPreview(frame: frame, style: .area)
         }
     }
 
@@ -59,9 +101,77 @@ struct WindowLayoutEngine {
         return nearestScreen(to: midpoint, in: screenFrames)
     }
 
+    func resolvedVisibleFrame(
+        preferredPoint: CGPoint?,
+        currentWindowFrame: CGRect,
+        screenFrames: [CGRect]
+    ) -> CGRect? {
+        let preferredScreenFrame = preferredPoint.flatMap { preferredPoint in
+            screenFrames.first { $0.contains(preferredPoint) }
+        }
+
+        return preferredScreenFrame ?? screenContainingMost(
+            of: currentWindowFrame,
+            in: screenFrames
+        )
+    }
+
     private func nearestScreen(to point: CGPoint, in screenFrames: [CGRect]) -> CGRect? {
         screenFrames.min { lhs, rhs in
             lhs.center.distance(to: point) < rhs.center.distance(to: point)
+        }
+    }
+
+    private func areaPreviewFrame(
+        targetFrame: CGRect,
+        observation: WindowActionPreview.Observation?,
+        defaultHorizontalAnchor: WindowActionPreview.AxisAnchor,
+        defaultVerticalAnchor: WindowActionPreview.AxisAnchor
+    ) -> CGRect {
+        let observedMinimumSize = observation?.minimumSize ?? targetFrame.size
+        let horizontalAnchor = observation?.horizontalAnchor ?? defaultHorizontalAnchor
+        let verticalAnchor = observation?.verticalAnchor ?? defaultVerticalAnchor
+
+        let width = max(targetFrame.width, observedMinimumSize.width)
+        let height = max(targetFrame.height, observedMinimumSize.height)
+
+        let originX = anchoredOrigin(
+            min: targetFrame.minX,
+            max: targetFrame.maxX,
+            targetSize: targetFrame.width,
+            resolvedSize: width,
+            anchor: horizontalAnchor
+        )
+        let originY = anchoredOrigin(
+            min: targetFrame.minY,
+            max: targetFrame.maxY,
+            targetSize: targetFrame.height,
+            resolvedSize: height,
+            anchor: verticalAnchor
+        )
+
+        return CGRect(
+            x: originX,
+            y: originY,
+            width: width,
+            height: height
+        ).integral
+    }
+
+    private func anchoredOrigin(
+        min: CGFloat,
+        max: CGFloat,
+        targetSize: CGFloat,
+        resolvedSize: CGFloat,
+        anchor: WindowActionPreview.AxisAnchor
+    ) -> CGFloat {
+        switch anchor {
+        case .leadingEdge:
+            return min
+        case .trailingEdge:
+            return max - resolvedSize
+        case .centered:
+            return min - ((resolvedSize - targetSize) / 2)
         }
     }
 

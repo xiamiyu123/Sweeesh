@@ -8,7 +8,8 @@ protocol GestureFeedbackPresenting {
         gestureTitle: String,
         actionTitle: String,
         anchor: CGPoint?,
-        persistent: Bool
+        persistent: Bool,
+        preview: WindowActionPreview?
     )
     func dismiss()
     func scheduleDismiss()
@@ -248,7 +249,9 @@ final class GestureHUDRenderView: NSVisualEffectView {
 final class GestureFeedbackController: GestureFeedbackPresenting {
     private let settingsStore: SettingsStore
     private let panel: NSPanel
+    private let previewPanel: NSPanel
     private let renderView = GestureHUDRenderView(frame: .zero)
+    private let previewView = GestureSnapPreviewView(frame: .zero)
     private var dismissTask: Task<Void, Never>?
     private var hideGeneration: UInt64 = 0
     private var currentPanelSize = GestureHUDRenderView.panelSize(for: .elegant)
@@ -293,6 +296,25 @@ final class GestureFeedbackController: GestureFeedbackPresenting {
         panel.contentView = renderView
         panel.hasShadow = settingsStore.gestureHUDStyle != .minimal
         panel.alphaValue = 0
+
+        previewPanel = NSPanel(
+            contentRect: .zero,
+            styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        previewPanel.level = .statusBar
+        previewPanel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
+        previewPanel.backgroundColor = .clear
+        previewPanel.isOpaque = false
+        previewPanel.hasShadow = false
+        previewPanel.isReleasedWhenClosed = false
+        previewPanel.hidesOnDeactivate = false
+        previewPanel.ignoresMouseEvents = true
+        previewPanel.titleVisibility = .hidden
+        previewPanel.titlebarAppearsTransparent = true
+        previewPanel.contentView = previewView
+        previewPanel.alphaValue = 0
     }
 
     func show(
@@ -300,7 +322,8 @@ final class GestureFeedbackController: GestureFeedbackPresenting {
         gestureTitle: String,
         actionTitle: String,
         anchor: CGPoint? = nil,
-        persistent: Bool = false
+        persistent: Bool = false,
+        preview: WindowActionPreview? = nil
     ) {
         let style = settingsStore.gestureHUDStyle
         renderView.render(
@@ -317,11 +340,16 @@ final class GestureFeedbackController: GestureFeedbackPresenting {
 
         let anchorPoint = anchor ?? NSEvent.mouseLocation
         panel.setFrame(frame(for: anchorPoint), display: false)
+        updatePreview(preview: persistent ? preview : nil)
 
         hideGeneration &+= 1
         dismissTask?.cancel()
+        if preview != nil, persistent {
+            previewPanel.orderFrontRegardless()
+        }
         panel.orderFrontRegardless()
 
+        previewPanel.animator().alphaValue = preview != nil && persistent ? 1 : 0
         panel.animator().alphaValue = 1
 
         guard persistent == false else {
@@ -378,11 +406,13 @@ final class GestureFeedbackController: GestureFeedbackPresenting {
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.12
             context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            previewPanel.animator().alphaValue = 0
             panel.animator().alphaValue = 0
         } completionHandler: { [weak self] in
             MainActor.assumeIsolated {
                 guard let self else { return }
                 guard expectedGeneration == self.hideGeneration else { return }
+                self.previewPanel.orderOut(nil)
                 self.panel.orderOut(nil)
             }
         }
@@ -392,11 +422,13 @@ final class GestureFeedbackController: GestureFeedbackPresenting {
         dismissTask?.cancel()
         dismissTask = nil
         hideGeneration &+= 1
+        previewPanel.animator().alphaValue = 0
         panel.animator().alphaValue = 0
         let gen = hideGeneration
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
             MainActor.assumeIsolated {
                 guard let self, gen == self.hideGeneration else { return }
+                self.previewPanel.orderOut(nil)
                 self.panel.orderOut(nil)
             }
         }
@@ -421,6 +453,74 @@ final class GestureFeedbackController: GestureFeedbackPresenting {
                 self?.hide(expectedGeneration: generation)
             }
         }
+    }
+
+    private func updatePreview(preview: WindowActionPreview?) {
+        guard let preview else {
+            previewPanel.alphaValue = 0
+            previewPanel.orderOut(nil)
+            return
+        }
+
+        previewView.preview = preview
+        previewPanel.setFrame(preview.frame, display: true)
+    }
+}
+
+@MainActor
+private final class GestureSnapPreviewView: NSView {
+    var preview: WindowActionPreview? {
+        didSet { needsDisplay = true }
+    }
+
+    private let cornerRadius: CGFloat = 18
+    private let strokeWidth: CGFloat = 1.5
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.clear.cgColor
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        return nil
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+
+        guard let preview else { return }
+        let previewRect = bounds.insetBy(dx: strokeWidth / 2, dy: strokeWidth / 2)
+        guard previewRect.isEmpty == false else { return }
+
+        switch preview.style {
+        case .area:
+            drawAreaPreview(in: previewRect)
+        }
+    }
+
+    private func drawAreaPreview(in previewRect: NSRect) {
+        let path = NSBezierPath(roundedRect: previewRect, xRadius: cornerRadius, yRadius: cornerRadius)
+
+        NSColor.controlAccentColor.withAlphaComponent(0.18).setFill()
+        path.fill()
+
+        NSColor.white.withAlphaComponent(0.18).setFill()
+        NSBezierPath(
+            roundedRect: NSRect(
+                x: previewRect.minX + 1,
+                y: previewRect.midY,
+                width: max(0, previewRect.width - 2),
+                height: max(0, (previewRect.height / 2) - 1)
+            ),
+            xRadius: max(0, cornerRadius - 3),
+            yRadius: max(0, cornerRadius - 3)
+        ).fill()
+
+        NSColor.controlAccentColor.withAlphaComponent(0.62).setStroke()
+        path.lineWidth = strokeWidth
+        path.stroke()
     }
 }
 

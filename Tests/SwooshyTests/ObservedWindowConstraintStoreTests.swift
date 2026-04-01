@@ -97,4 +97,85 @@ struct ObservedWindowConstraintStoreTests {
         #expect(observation?.horizontalAnchor == .leadingEdge)
         #expect(observation?.verticalAnchor == .leadingEdge)
     }
+
+    @Test
+    func discardsUnusedApplicationConstraintsAfterOneThousandMisses() {
+        let store = ObservedWindowConstraintStore()
+
+        store.record(
+            sizeBounds: WindowActionPreview.SizeBounds(
+                minimumWidth: nil,
+                maximumWidth: 1200,
+                minimumHeight: nil,
+                maximumHeight: 800
+            ),
+            horizontalAnchor: .centered,
+            verticalAnchor: .centered,
+            action: .maximize,
+            for: "com.example.cached"
+        )
+
+        for round in 0..<1_000 {
+            let observation = store.observation(
+                for: "com.example.other-\(round)",
+                action: .leftHalf
+            )
+            #expect(observation == nil)
+        }
+
+        let cachedObservation = store.observation(
+            for: "com.example.cached",
+            action: .maximize
+        )
+
+        #expect(cachedObservation == nil)
+    }
+
+    @Test
+    func hitsRefreshConstraintRetentionWindow() {
+        let store = ObservedWindowConstraintStore()
+
+        store.record(
+            sizeBounds: WindowActionPreview.SizeBounds(
+                minimumWidth: nil,
+                maximumWidth: 1200,
+                minimumHeight: nil,
+                maximumHeight: 800
+            ),
+            horizontalAnchor: .centered,
+            verticalAnchor: .centered,
+            action: .maximize,
+            for: "com.example.cached"
+        )
+
+        for round in 0..<999 {
+            let observation = store.observation(
+                for: "com.example.other-\(round)",
+                action: .leftHalf
+            )
+            #expect(observation == nil)
+        }
+
+        let refreshedObservation = store.observation(
+            for: "com.example.cached",
+            action: .maximize
+        )
+
+        #expect(refreshedObservation?.sizeBounds.maximumWidth == 1200)
+
+        for round in 0..<999 {
+            let observation = store.observation(
+                for: "com.example.another-\(round)",
+                action: .leftHalf
+            )
+            #expect(observation == nil)
+        }
+
+        let survivingObservation = store.observation(
+            for: "com.example.cached",
+            action: .maximize
+        )
+
+        #expect(survivingObservation?.sizeBounds.maximumWidth == 1200)
+    }
 }

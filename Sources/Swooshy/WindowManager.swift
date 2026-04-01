@@ -37,6 +37,8 @@ private struct FrameWriteResult {
 
 @MainActor
 final class ObservedWindowConstraintStore {
+    private static let maxIdleRounds = 1_000
+
     private struct ApplicationConstraints {
         var sharedMaximumSizeBounds = WindowActionPreview.SizeBounds(
             minimumWidth: nil,
@@ -45,15 +47,20 @@ final class ObservedWindowConstraintStore {
             maximumHeight: nil
         )
         var observationsByAction: [WindowAction: WindowActionPreview.Observation] = [:]
+        var lastHitRound: Int = 0
     }
 
     private var constraintsByApplicationKey: [String: ApplicationConstraints] = [:]
+    private var currentRound = 0
 
     func observation(
         for applicationKey: String,
         action: WindowAction
     ) -> WindowActionPreview.Observation? {
-        guard let applicationConstraints = constraintsByApplicationKey[applicationKey] else {
+        currentRound += 1
+        evictExpiredConstraints()
+
+        guard var applicationConstraints = constraintsByApplicationKey[applicationKey] else {
             return nil
         }
 
@@ -72,6 +79,9 @@ final class ObservedWindowConstraintStore {
             return nil
         }
 
+        applicationConstraints.lastHitRound = currentRound
+        constraintsByApplicationKey[applicationKey] = applicationConstraints
+
         return WindowActionPreview.Observation(
             sizeBounds: mergedSizeBounds,
             horizontalAnchor: actionObservation?.horizontalAnchor,
@@ -87,6 +97,7 @@ final class ObservedWindowConstraintStore {
         for applicationKey: String
     ) {
         var applicationConstraints = constraintsByApplicationKey[applicationKey] ?? ApplicationConstraints()
+        evictExpiredConstraints()
 
         let sharedMaximumSizeBounds = sharedMaximumBounds(from: sizeBounds)
         if sharedMaximumSizeBounds.hasConstraints {
@@ -116,7 +127,14 @@ final class ObservedWindowConstraintStore {
             )
         }
 
+        applicationConstraints.lastHitRound = currentRound
         constraintsByApplicationKey[applicationKey] = applicationConstraints
+    }
+
+    private func evictExpiredConstraints() {
+        constraintsByApplicationKey = constraintsByApplicationKey.filter { _, constraints in
+            currentRound - constraints.lastHitRound <= Self.maxIdleRounds
+        }
     }
 
     private func merged(

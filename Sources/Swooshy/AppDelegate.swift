@@ -18,6 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         if shouldResetUserConfiguration {
             SettingsStore.resetPersistedConfiguration()
+            ObservedWindowConstraintStore.resetPersistedConstraints()
         }
 
         let settingsStore = SettingsStore()

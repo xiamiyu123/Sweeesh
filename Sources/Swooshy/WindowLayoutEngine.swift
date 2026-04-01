@@ -5,13 +5,13 @@ struct WindowActionPreview: Equatable, Sendable {
         case area
     }
 
-    enum AxisAnchor: Equatable, Sendable {
+    enum AxisAnchor: String, Codable, Equatable, Sendable {
         case leadingEdge
         case trailingEdge
         case centered
     }
 
-    struct SizeBounds: Equatable, Sendable {
+    struct SizeBounds: Codable, Equatable, Sendable {
         var minimumWidth: CGFloat?
         var maximumWidth: CGFloat?
         var minimumHeight: CGFloat?
@@ -55,7 +55,7 @@ struct WindowActionPreview: Equatable, Sendable {
         }
     }
 
-    struct Observation: Equatable, Sendable {
+    struct Observation: Codable, Equatable, Sendable {
         var sizeBounds: SizeBounds
         var horizontalAnchor: AxisAnchor?
         var verticalAnchor: AxisAnchor?

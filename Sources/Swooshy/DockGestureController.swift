@@ -171,6 +171,7 @@ final class DockGestureController {
         cornerDragPreviewCache.clear()
         dockProbe.clearCache()
         titleBarProbe.clearCache()
+        windowManager.shutdown()
         monitor.onFrame = nil
         monitor.stop()
         cancelPendingReleaseAction()

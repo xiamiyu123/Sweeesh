@@ -37,38 +37,71 @@ private struct FrameWriteResult {
 
 @MainActor
 final class ObservedWindowConstraintStore {
-    private static let maxIdleRounds = 1_000
+    private static let persistenceKey = "windowManager.observedWindowConstraintStore"
+    private static let expirationInterval: TimeInterval = 7 * 24 * 60 * 60
+    private static let defaultAutosaveInterval: TimeInterval = 60 * 60
+
+    private struct PersistedSnapshot: Codable {
+        var applications: [PersistedApplicationConstraints]
+    }
+
+    private struct PersistedApplicationConstraints: Codable {
+        var applicationKey: String
+        var sharedSizeBounds: WindowActionPreview.SizeBounds
+        var observations: [PersistedActionObservation]
+        var lastUsedAt: Date
+    }
+
+    private struct PersistedActionObservation: Codable {
+        var action: WindowAction
+        var observation: WindowActionPreview.Observation
+    }
 
     private struct ApplicationConstraints {
-        var sharedMaximumSizeBounds = WindowActionPreview.SizeBounds(
+        var sharedSizeBounds = WindowActionPreview.SizeBounds(
             minimumWidth: nil,
             maximumWidth: nil,
             minimumHeight: nil,
             maximumHeight: nil
         )
         var observationsByAction: [WindowAction: WindowActionPreview.Observation] = [:]
-        var lastHitRound: Int = 0
+        var lastUsedAt: Date
     }
 
+    private let userDefaults: UserDefaults
+    private let now: () -> Date
+    private let autosaveInterval: TimeInterval
+    private var autosaveTimer: Timer?
     private var constraintsByApplicationKey: [String: ApplicationConstraints] = [:]
-    private var currentRound = 0
+    private var hasPendingPersistence = false
+
+    init(
+        userDefaults: UserDefaults = .standard,
+        now: @escaping () -> Date = Date.init,
+        autosaveInterval: TimeInterval = ObservedWindowConstraintStore.defaultAutosaveInterval
+    ) {
+        self.userDefaults = userDefaults
+        self.now = now
+        self.autosaveInterval = autosaveInterval
+
+        loadPersistedConstraints()
+        scheduleAutosaveIfNeeded()
+    }
 
     func observation(
         for applicationKey: String,
         action: WindowAction
     ) -> WindowActionPreview.Observation? {
-        currentRound += 1
-        evictExpiredConstraints()
+        pruneExpiredConstraints()
 
         guard var applicationConstraints = constraintsByApplicationKey[applicationKey] else {
             return nil
         }
 
-        let sharedMaximumSizeBounds = applicationConstraints.sharedMaximumSizeBounds
         let actionObservation = applicationConstraints.observationsByAction[action]
         let mergedSizeBounds = merged(
             actionObservation?.sizeBounds ?? emptySizeBounds(),
-            with: sharedMaximumSizeBounds
+            with: applicationConstraints.sharedSizeBounds
         )
 
         guard
@@ -79,8 +112,9 @@ final class ObservedWindowConstraintStore {
             return nil
         }
 
-        applicationConstraints.lastHitRound = currentRound
+        applicationConstraints.lastUsedAt = now()
         constraintsByApplicationKey[applicationKey] = applicationConstraints
+        hasPendingPersistence = true
 
         return WindowActionPreview.Observation(
             sizeBounds: mergedSizeBounds,
@@ -96,14 +130,17 @@ final class ObservedWindowConstraintStore {
         action: WindowAction,
         for applicationKey: String
     ) {
-        var applicationConstraints = constraintsByApplicationKey[applicationKey] ?? ApplicationConstraints()
-        evictExpiredConstraints()
+        pruneExpiredConstraints()
 
-        let sharedMaximumSizeBounds = sharedMaximumBounds(from: sizeBounds)
-        if sharedMaximumSizeBounds.hasConstraints {
-            applicationConstraints.sharedMaximumSizeBounds = merged(
-                applicationConstraints.sharedMaximumSizeBounds,
-                with: sharedMaximumSizeBounds
+        let currentDate = now()
+        var applicationConstraints = constraintsByApplicationKey[applicationKey] ?? ApplicationConstraints(
+            lastUsedAt: currentDate
+        )
+
+        if sizeBounds.hasConstraints {
+            applicationConstraints.sharedSizeBounds = merged(
+                applicationConstraints.sharedSizeBounds,
+                with: sizeBounds
             )
         }
 
@@ -127,13 +164,136 @@ final class ObservedWindowConstraintStore {
             )
         }
 
-        applicationConstraints.lastHitRound = currentRound
+        applicationConstraints.lastUsedAt = currentDate
         constraintsByApplicationKey[applicationKey] = applicationConstraints
+        hasPendingPersistence = true
     }
 
-    private func evictExpiredConstraints() {
+    func flushPersistedConstraints() {
+        persistIfNeeded(force: true)
+    }
+
+    func shutdown() {
+        autosaveTimer?.invalidate()
+        autosaveTimer = nil
+        flushPersistedConstraints()
+    }
+
+    static func resetPersistedConstraints(in userDefaults: UserDefaults = .standard) {
+        userDefaults.removeObject(forKey: persistenceKey)
+    }
+
+    private func loadPersistedConstraints() {
+        guard let data = userDefaults.data(forKey: Self.persistenceKey) else {
+            return
+        }
+
+        do {
+            let snapshot = try JSONDecoder().decode(PersistedSnapshot.self, from: data)
+            constraintsByApplicationKey = Dictionary(
+                uniqueKeysWithValues: snapshot.applications.map { application in
+                    (
+                        application.applicationKey,
+                        ApplicationConstraints(
+                            sharedSizeBounds: application.sharedSizeBounds,
+                            observationsByAction: Dictionary(
+                                uniqueKeysWithValues: application.observations.map { ($0.action, $0.observation) }
+                            ),
+                            lastUsedAt: application.lastUsedAt
+                        )
+                    )
+                }
+            )
+            pruneExpiredConstraints()
+            if hasPendingPersistence {
+                persistIfNeeded(force: true)
+            }
+        } catch {
+            DebugLog.error(
+                DebugLog.windows,
+                "Failed to decode observed window constraint store, clearing persisted cache: \(error.localizedDescription)"
+            )
+            constraintsByApplicationKey = [:]
+            hasPendingPersistence = false
+            userDefaults.removeObject(forKey: Self.persistenceKey)
+        }
+    }
+
+    private func scheduleAutosaveIfNeeded() {
+        guard autosaveInterval > 0 else {
+            return
+        }
+
+        let timer = Timer.scheduledTimer(withTimeInterval: autosaveInterval, repeats: true) { [weak self] _ in
+            guard let self else {
+                return
+            }
+
+            Task { @MainActor in
+                self.persistIfNeeded()
+            }
+        }
+        timer.tolerance = min(60, autosaveInterval * 0.1)
+        autosaveTimer = timer
+    }
+
+    private func pruneExpiredConstraints(referenceDate: Date? = nil) {
+        let currentDate = referenceDate ?? now()
+        let cutoffDate = currentDate.addingTimeInterval(-Self.expirationInterval)
+        let originalCount = constraintsByApplicationKey.count
+
         constraintsByApplicationKey = constraintsByApplicationKey.filter { _, constraints in
-            currentRound - constraints.lastHitRound <= Self.maxIdleRounds
+            constraints.lastUsedAt >= cutoffDate
+        }
+
+        if constraintsByApplicationKey.count != originalCount {
+            hasPendingPersistence = true
+        }
+    }
+
+    private func persistIfNeeded(force: Bool = false) {
+        pruneExpiredConstraints()
+
+        guard force || hasPendingPersistence else {
+            return
+        }
+
+        guard constraintsByApplicationKey.isEmpty == false else {
+            userDefaults.removeObject(forKey: Self.persistenceKey)
+            hasPendingPersistence = false
+            return
+        }
+
+        let applications: [PersistedApplicationConstraints] = constraintsByApplicationKey.keys.sorted().compactMap { applicationKey in
+            guard let constraints = constraintsByApplicationKey[applicationKey] else {
+                return nil
+            }
+
+            let observations = constraints.observationsByAction.keys
+                .sorted(by: { $0.rawValue < $1.rawValue })
+                .compactMap { action in
+                    constraints.observationsByAction[action].map { observation in
+                        PersistedActionObservation(action: action, observation: observation)
+                    }
+                }
+
+            return PersistedApplicationConstraints(
+                applicationKey: applicationKey,
+                sharedSizeBounds: constraints.sharedSizeBounds,
+                observations: observations,
+                lastUsedAt: constraints.lastUsedAt
+            )
+        }
+
+        do {
+            let data = try JSONEncoder().encode(PersistedSnapshot(applications: applications))
+            userDefaults.set(data, forKey: Self.persistenceKey)
+            hasPendingPersistence = false
+        } catch {
+            DebugLog.error(
+                DebugLog.windows,
+                "Failed to persist observed window constraint store: \(error.localizedDescription)"
+            )
         }
     }
 
@@ -146,17 +306,6 @@ final class ObservedWindowConstraintStore {
             maximumWidth: mergeMinimum(lhs.maximumWidth, rhs.maximumWidth),
             minimumHeight: mergeMaximum(lhs.minimumHeight, rhs.minimumHeight),
             maximumHeight: mergeMinimum(lhs.maximumHeight, rhs.maximumHeight)
-        )
-    }
-
-    private func sharedMaximumBounds(
-        from sizeBounds: WindowActionPreview.SizeBounds
-    ) -> WindowActionPreview.SizeBounds {
-        WindowActionPreview.SizeBounds(
-            minimumWidth: nil,
-            maximumWidth: sizeBounds.maximumWidth,
-            minimumHeight: nil,
-            maximumHeight: sizeBounds.maximumHeight
         )
     }
 
@@ -212,6 +361,10 @@ struct WindowManager: WindowManaging {
         let screenGeometry: ScreenGeometry
         let targetFrame: CGRect
         let targetAXFrame: CGRect
+    }
+
+    func shutdown() {
+        observedWindowConstraintStore.shutdown()
     }
 
     func perform(_ action: WindowAction, layoutEngine: WindowLayoutEngine) throws {

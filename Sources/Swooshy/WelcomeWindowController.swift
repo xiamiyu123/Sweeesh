@@ -220,6 +220,7 @@ struct WelcomeGuideContent {
                 bullets: [
                     settingsStore.localized("guide.page.titlebar_horizontal.bullet1"),
                     settingsStore.localized("guide.page.titlebar_horizontal.bullet2"),
+                    settingsStore.localized("guide.page.titlebar_horizontal.bullet3"),
                 ],
                 imageName: "step3"
             ),

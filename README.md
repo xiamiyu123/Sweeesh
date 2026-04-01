@@ -90,12 +90,18 @@ layout:
 
 * **Two-finger swipe left**: Snap the current window to the left half.
 * **Two-finger swipe right**: Snap the current window to the right half.
+* **Two-finger long press for 0.2s, then drag toward a corner**: Enter corner
+  snap mode.
 * Great for side-by-side comparison with another window.
 
 <br>
 <img src="docs/images/step3.jpg" width="600" alt="Title bar gesture for snapping windows left and right" style="border-radius: 8px;">
 
 </details>
+
+Corner snap uses a short hover-target cache to keep repeated title-bar and Dock
+triggers stable while your pointer stays in place. The default long-press delay
+is now `0.2s`, and you can adjust it from `Settings...` -> `Advanced Settings`.
 
 <details>
 <summary><b>Page 6: Custom settings and global shortcuts</b></summary>

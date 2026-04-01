@@ -23,5 +23,18 @@ struct WelcomeWindowControllerTests {
         #expect(englishContent.windowTitle == "Welcome")
         #expect(englishContent.welcomeTitle == "Welcome to Swooshy")
         #expect(englishContent.pages[1].title == "Dock Gestures: Switch Windows for the Same App")
+        #expect(englishContent.pages[5].bullets.count == 3)
+        #expect(englishContent.pages[5].bullets[2].contains("0.2 seconds"))
+    }
+
+    @Test
+    func settingsStoreUsesShortCornerSnapHoldDurationByDefault() {
+        let suiteName = "Swooshy.WelcomeWindowControllerTests.Defaults.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+
+        let store = SettingsStore(userDefaults: defaults)
+
+        #expect(store.titleBarCornerDragHoldDuration == 0.2)
     }
 }

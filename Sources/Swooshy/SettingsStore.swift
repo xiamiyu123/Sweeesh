@@ -656,7 +656,7 @@ final class SettingsStore {
     static let defaultTitleBarTriggerHeight: Double = 32
     static let minimumTitleBarTriggerHeight: Double = 24
     static let maximumTitleBarTriggerHeight: Double = 56
-    static let defaultTitleBarCornerDragHoldDuration: Double = 0.6
+    static let defaultTitleBarCornerDragHoldDuration: Double = 0.2
     static let minimumTitleBarCornerDragHoldDuration: Double = 0.2
     static let maximumTitleBarCornerDragHoldDuration: Double = 1.5
 

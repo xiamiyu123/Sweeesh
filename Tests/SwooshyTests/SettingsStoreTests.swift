@@ -18,6 +18,7 @@ struct SettingsStoreTests {
         store.titleBarGesturesEnabled = false
         store.titleBarOverlayProtectionEnabled = true
         store.smartBrowserTabCloseEnabled = true
+        store.titleBarTriggerHeight = 42
         store.updateDockGestureAction(.closeWindow, for: .pinchIn)
         store.updateDockGestureEnabled(false, for: .pinchIn)
         store.updateTitleBarGestureAction(.maximize, for: .swipeLeft)
@@ -32,6 +33,7 @@ struct SettingsStoreTests {
         #expect(reloadedStore.titleBarGesturesEnabled == false)
         #expect(reloadedStore.titleBarOverlayProtectionEnabled == true)
         #expect(reloadedStore.smartBrowserTabCloseEnabled == true)
+        #expect(reloadedStore.titleBarTriggerHeight == 42)
         #expect(reloadedStore.dockGestureAction(for: .pinchIn) == .closeWindow)
         #expect(reloadedStore.dockGestureIsEnabled(for: .pinchIn) == false)
         #expect(reloadedStore.titleBarGestureAction(for: .swipeLeft) == .maximize)
@@ -117,6 +119,7 @@ struct SettingsStoreTests {
         store.titleBarGesturesEnabled = false
         store.titleBarOverlayProtectionEnabled = true
         store.smartBrowserTabCloseEnabled = true
+        store.titleBarTriggerHeight = 40
         store.statusItemIcon = .windowGrid
         _ = store.consumeWelcomeGuidePresentationFlag()
         store.updateDockGestureAction(.closeWindow, for: .pinchIn)
@@ -130,6 +133,7 @@ struct SettingsStoreTests {
         #expect(reloadedStore.titleBarGesturesEnabled == true)
         #expect(reloadedStore.titleBarOverlayProtectionEnabled == true)
         #expect(reloadedStore.smartBrowserTabCloseEnabled == false)
+        #expect(reloadedStore.titleBarTriggerHeight == SettingsStore.defaultTitleBarTriggerHeight)
         #expect(reloadedStore.statusItemIcon == .gale)
         #expect(reloadedStore.hasSeenWelcomeGuide == false)
         #expect(reloadedStore.dockGestureAction(for: .pinchIn) == .quitApplication)
@@ -144,6 +148,17 @@ struct SettingsStoreTests {
         let store = SettingsStore(userDefaults: defaults)
 
         #expect(store.titleBarOverlayProtectionEnabled == true)
+    }
+
+    @Test
+    func titleBarTriggerHeightDefaultsToStandardHeight() {
+        let suiteName = "Swooshy.SettingsStoreTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+
+        let store = SettingsStore(userDefaults: defaults)
+
+        #expect(store.titleBarTriggerHeight == SettingsStore.defaultTitleBarTriggerHeight)
     }
 
     @Test

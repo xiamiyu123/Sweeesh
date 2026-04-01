@@ -147,6 +147,8 @@
 "settings.advanced.section.sensitivity" = "Gesture Sensitivity";
 "settings.advanced.swipe_sensitivity.label" = "Swipe sensitivity";
 "settings.advanced.pinch_sensitivity.label" = "Pinch sensitivity";
+"settings.advanced.title_bar_trigger_height.label" = "Title-bar trigger height";
+"settings.advanced.title_bar_trigger_height.footer" = "Use a fixed height for title-bar detection instead of scaling with the window size. The default matches a standard title bar.";
 "settings.advanced.section.cancel" = "Gesture Cancellation";
 "settings.advanced.reverse_cancel.enabled" = "Cancel gesture on reverse movement";
 "settings.advanced.reverse_cancel.footer" = "When enabled and \"Execute on release\" is active, moving your fingers back in the opposite direction will cancel the pending gesture.";

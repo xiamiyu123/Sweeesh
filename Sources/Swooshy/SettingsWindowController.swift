@@ -295,6 +295,18 @@ private struct AdvancedSettingsSheet: View {
                         lowLabel: settingsStore.localized("settings.advanced.sensitivity.low"),
                         highLabel: settingsStore.localized("settings.advanced.sensitivity.high")
                     )
+
+                    PixelSlider(
+                        label: settingsStore.localized("settings.advanced.title_bar_trigger_height.label"),
+                        value: $settingsStore.titleBarTriggerHeight,
+                        range: SettingsStore.minimumTitleBarTriggerHeight ... SettingsStore.maximumTitleBarTriggerHeight,
+                        step: 1
+                    )
+                    .disabled(settingsStore.titleBarGesturesEnabled == false)
+
+                    SettingsHintGroup {
+                        Text(settingsStore.localized("settings.advanced.title_bar_trigger_height.footer"))
+                    }
                 } header: {
                     Text(settingsStore.localized("settings.advanced.section.sensitivity"))
                 }
@@ -413,6 +425,32 @@ private struct SensitivitySlider: View {
                     .foregroundStyle(.secondary)
                     .frame(width: 28, alignment: .leading)
             }
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+private struct PixelSlider: View {
+    let label: String
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+    let step: Double
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline) {
+                Text(label)
+                    .font(.body)
+
+                Spacer()
+
+                Text("\(Int(value.rounded())) px")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+            }
+
+            Slider(value: $value, in: range, step: step)
         }
         .padding(.vertical, 4)
     }
@@ -891,4 +929,3 @@ private struct CompactInteractionStyleCard: View {
         .buttonStyle(.plain)
     }
 }
-

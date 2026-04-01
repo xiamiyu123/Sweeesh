@@ -147,6 +147,8 @@
 "settings.advanced.section.sensitivity" = "手势灵敏度";
 "settings.advanced.swipe_sensitivity.label" = "滑动灵敏度";
 "settings.advanced.pinch_sensitivity.label" = "捏合灵敏度";
+"settings.advanced.title_bar_trigger_height.label" = "标题栏触发高度";
+"settings.advanced.title_bar_trigger_height.footer" = "使用固定高度来识别标题栏区域，不再随着窗口缩放而变化。默认值为标准标题栏高度。";
 "settings.advanced.section.cancel" = "手势取消";
 "settings.advanced.reverse_cancel.enabled" = "反向移动时取消手势";
 "settings.advanced.reverse_cancel.footer" = "开启后，在「松手后执行」模式下，反方向移动手指可以取消待执行的手势。";

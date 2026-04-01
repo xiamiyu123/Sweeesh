@@ -213,6 +213,7 @@ final class DockGestureController {
                 titleBarProbe.hoveredApplication(
                     at: $0,
                     requireFrontmostOwnership: settingsStore.titleBarOverlayProtectionEnabled,
+                    titleBarHeight: CGFloat(settingsStore.titleBarTriggerHeight),
                     allowFullScreen: settingsStore.smartPinchExitFullScreenEnabled,
                     allowBrowserTabFallback: settingsStore.smartBrowserTabCloseEnabled
                 )
@@ -724,8 +725,6 @@ struct DockHoverSnapshot: Equatable {
 private final class TitleBarAccessibilityProbe {
     private let cacheTTL: TimeInterval = 0.2
     private let logTTL: TimeInterval = 0.4
-    private let minimumTitleBarHeight: CGFloat = 24
-    private let maximumTitleBarHeight: CGFloat = 56
     private var cachedHitRegion: CachedHitRegion?
     private var lastProbeLogAt = Date.distantPast
     private var lastProbeLogKey = ""
@@ -745,6 +744,7 @@ private final class TitleBarAccessibilityProbe {
     func hoveredApplication(
         at appKitPoint: CGPoint,
         requireFrontmostOwnership: Bool,
+        titleBarHeight: CGFloat,
         allowFullScreen: Bool = false,
         allowBrowserTabFallback: Bool = false
     ) -> DockApplicationTarget? {
@@ -801,7 +801,7 @@ private final class TitleBarAccessibilityProbe {
             return nil
         }
 
-        let titleBarFrame = titleBarFrame(for: appKitWindowFrame)
+        let titleBarFrame = titleBarFrame(for: appKitWindowFrame, titleBarHeight: titleBarHeight)
         guard titleBarFrame.isEmpty == false else {
             cachedHitRegion = nil
             return nil
@@ -900,15 +900,14 @@ private final class TitleBarAccessibilityProbe {
         return appKitFrame
     }
 
-    private func titleBarFrame(for windowFrame: CGRect) -> CGRect {
-        let estimatedHeight = floor(windowFrame.height * 0.12)
-        let height = min(maximumTitleBarHeight, max(minimumTitleBarHeight, estimatedHeight))
+    private func titleBarFrame(for windowFrame: CGRect, titleBarHeight: CGFloat) -> CGRect {
+        let height = SettingsStore.clampTitleBarTriggerHeight(Double(titleBarHeight))
 
         return CGRect(
             x: windowFrame.minX,
-            y: windowFrame.maxY - height,
+            y: windowFrame.maxY - CGFloat(height),
             width: windowFrame.width,
-            height: height
+            height: CGFloat(height)
         ).integral
     }
 

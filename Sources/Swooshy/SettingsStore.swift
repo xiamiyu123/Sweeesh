@@ -144,6 +144,27 @@ final class SettingsStore {
         }
     }
 
+    var titleBarTriggerHeight: Double {
+        didSet {
+            let clampedValue = Self.clampTitleBarTriggerHeight(titleBarTriggerHeight)
+            guard oldValue != clampedValue else {
+                if titleBarTriggerHeight != clampedValue {
+                    titleBarTriggerHeight = clampedValue
+                }
+                return
+            }
+
+            if titleBarTriggerHeight != clampedValue {
+                titleBarTriggerHeight = clampedValue
+                return
+            }
+
+            userDefaults.set(clampedValue, forKey: Keys.titleBarTriggerHeight)
+            DebugLog.info(DebugLog.settings, "Title-bar trigger height set to \(clampedValue)")
+            notifyDidChange()
+        }
+    }
+
     var gestureHUDStyle: GestureHUDStyle {
         didSet {
             guard oldValue != gestureHUDStyle else { return }
@@ -277,6 +298,13 @@ final class SettingsStore {
             defaultValue: 0.5,
             in: userDefaults
         )
+        self.titleBarTriggerHeight = Self.clampTitleBarTriggerHeight(
+            Self.doubleValue(
+                forKey: Keys.titleBarTriggerHeight,
+                defaultValue: Self.defaultTitleBarTriggerHeight,
+                in: userDefaults
+            )
+        )
         self.gestureHUDStyle = GestureHUDStyle(
             storageValue: userDefaults.string(forKey: Keys.gestureHUDStyle)
         )
@@ -315,6 +343,7 @@ final class SettingsStore {
             Keys.reverseCancelSensitivity,
             Keys.swipeSensitivity,
             Keys.pinchSensitivity,
+            Keys.titleBarTriggerHeight,
             Keys.gestureHUDStyle,
             Keys.statusItemIcon,
             Keys.hotKeyBindings,
@@ -553,10 +582,19 @@ final class SettingsStore {
         reverseCancelSensitivity = 0.5
         swipeSensitivity = 0.5
         pinchSensitivity = 0.5
+        titleBarTriggerHeight = Self.defaultTitleBarTriggerHeight
         titleBarOverlayProtectionEnabled = true
         smartPinchExitFullScreenEnabled = true
         smartBrowserTabCloseEnabled = false
         experimentalBrowserTabCloseEnabled = false
+    }
+
+    static let defaultTitleBarTriggerHeight: Double = 32
+    static let minimumTitleBarTriggerHeight: Double = 24
+    static let maximumTitleBarTriggerHeight: Double = 56
+
+    static func clampTitleBarTriggerHeight(_ value: Double) -> Double {
+        min(maximumTitleBarTriggerHeight, max(minimumTitleBarTriggerHeight, value))
     }
 
     private func persistHotKeyBindings() {
@@ -630,6 +668,7 @@ final class SettingsStore {
         static let reverseCancelSensitivity = "settings.reverseCancelSensitivity"
         static let swipeSensitivity = "settings.swipeSensitivity"
         static let pinchSensitivity = "settings.pinchSensitivity"
+        static let titleBarTriggerHeight = "settings.titleBarTriggerHeight"
         static let gestureHUDStyle = "settings.gestureHUDStyle"
         static let statusItemIcon = "settings.statusItemIcon"
         static let hasSeenWelcomeGuide = "settings.hasSeenWelcomeGuide"

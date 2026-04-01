@@ -11,9 +11,22 @@ import CoreGraphics
 /// normal close-window or quit-application action.
 @MainActor
 enum BrowserTabProbe {
+    enum TabHostFamily {
+        case webKit
+        case generic
+    }
+
+    struct TabAncestryNode: Equatable {
+        let role: String
+        let subrole: String
+        let title: String
+        let matchedTabElement: Bool
+    }
+
     private struct CachedHostSupport {
         let isSupported: Bool
         let description: String
+        let family: TabHostFamily
     }
 
     // MARK: - Public API
@@ -35,7 +48,10 @@ enum BrowserTabProbe {
             return false
         }
 
-        let isTab = axElementIsTab(at: appKitPoint)
+        let isTab = axElementIsTab(
+            at: appKitPoint,
+            hostFamily: hostSupport.family
+        )
         DebugLog.debug(
             DebugLog.dock,
             "BrowserTabProbe result pid=\(processIdentifier) host=\(hostSupport.description) point=\(NSStringFromPoint(appKitPoint)) => \(isTab ? "tab" : "not-tab")"
@@ -108,6 +124,12 @@ enum BrowserTabProbe {
         "com.nickvision.nickelchrome",       // Nickel
     ]
 
+    private static let webKitBrowserBundleIdentifiers: Set<String> = [
+        "com.apple.Safari",
+        "com.apple.SafariTechnologyPreview",
+        "com.kagi.kagimacOS",               // Orion
+    ]
+
     private static let knownEditorBundleIdentifiers: Set<String> = [
         "com.microsoft.VSCode",
         "com.microsoft.VSCodeInsiders",
@@ -172,10 +194,23 @@ enum BrowserTabProbe {
             .joined(separator: " / ")
         let support = CachedHostSupport(
             isSupported: isSupported,
-            description: description.isEmpty ? "<unknown>" : description
+            description: description.isEmpty ? "<unknown>" : description,
+            family: tabHostFamily(bundleIdentifier: app.bundleIdentifier)
         )
         hostSupportCache[processIdentifier] = support
         return support
+    }
+
+    private static func tabHostFamily(bundleIdentifier: String?) -> TabHostFamily {
+        guard let bundleIdentifier else {
+            return .generic
+        }
+
+        if webKitBrowserBundleIdentifiers.contains(bundleIdentifier) {
+            return .webKit
+        }
+
+        return .generic
     }
 
     // MARK: - AX Tab Detection
@@ -190,9 +225,27 @@ enum BrowserTabProbe {
         "AXTabButton",  // Safari
     ]
 
+    private static let browserChromeContainerRoles: Set<String> = [
+        "AXToolbar",
+        "AXTabGroup",
+    ]
+
+    private static let pageContentRoles: Set<String> = [
+        "AXWebArea",
+        "AXDocument",
+        "AXDocumentArticle",
+    ]
+
+    private static let pageContentSubroles: Set<String> = [
+        "AXTabPanel",
+    ]
+
     /// Walks upward from the deepest hit element to check if it (or any ancestor
     /// up to a small depth) has a tab-related AX role.
-    private static func axElementIsTab(at appKitPoint: CGPoint) -> Bool {
+    private static func axElementIsTab(
+        at appKitPoint: CGPoint,
+        hostFamily: TabHostFamily
+    ) -> Bool {
         let geometry = ScreenGeometry(screenFrames: NSScreen.screens.map(\.frame))
         let axPoint = geometry.axPoint(fromAppKitPoint: appKitPoint)
 
@@ -213,26 +266,27 @@ enum BrowserTabProbe {
             return false
         }
 
-        // Walk the element and its ancestors (up to 6 levels) looking for a tab.
+        // Walk the element and its ancestors, then validate the full ancestry so
+        // page-level ARIA tab widgets do not masquerade as browser chrome tabs.
         var current: AXUIElement? = element
-        let maxDepth = 6
-        var ancestry: [String] = []
+        let maxDepth = 10
+        var ancestry: [TabAncestryNode] = []
 
-        for depth in 0..<maxDepth {
+        for _ in 0..<maxDepth {
             guard let node = current else { break }
 
             let role = stringAttribute(kAXRoleAttribute as CFString, from: node) ?? "<nil>"
             let subrole = stringAttribute(kAXSubroleAttribute as CFString, from: node) ?? "<nil>"
             let title = stringAttribute(kAXTitleAttribute as CFString, from: node) ?? "<nil>"
-            ancestry.append("d\(depth):\(role)/\(subrole)/\(title)")
-
-            if isTabElement(node, at: axPoint) {
-                DebugLog.debug(
-                    DebugLog.dock,
-                    "BrowserTabProbe matched tab ancestry at AX point \(NSStringFromPoint(axPoint)): [\(ancestry.joined(separator: " -> "))]"
+            let matchedTabElement = isTabElement(node, at: axPoint)
+            ancestry.append(
+                TabAncestryNode(
+                    role: role,
+                    subrole: subrole,
+                    title: title,
+                    matchedTabElement: matchedTabElement
                 )
-                return true
-            }
+            )
 
             // Walk to parent.
             var parentRef: CFTypeRef?
@@ -243,29 +297,114 @@ enum BrowserTabProbe {
             )
 
             guard parentResult == .success, let parent = parentRef else {
-                DebugLog.debug(
-                    DebugLog.dock,
-                    "BrowserTabProbe stopped parent walk (result=\(parentResult.rawValue)) with ancestry [\(ancestry.joined(separator: " -> "))]"
+                return logAndReturnAncestryVerdict(
+                    ancestry,
+                    hostFamily: hostFamily,
+                    axPoint: axPoint,
+                    appKitPoint: appKitPoint,
+                    interruptionReason: "stopped parent walk (result=\(parentResult.rawValue))"
                 )
-                break
             }
 
             guard CFGetTypeID(parent) == AXUIElementGetTypeID() else {
-                DebugLog.debug(
-                    DebugLog.dock,
-                    "BrowserTabProbe stopped parent walk due non-AX parent with ancestry [\(ancestry.joined(separator: " -> "))]"
+                return logAndReturnAncestryVerdict(
+                    ancestry,
+                    hostFamily: hostFamily,
+                    axPoint: axPoint,
+                    appKitPoint: appKitPoint,
+                    interruptionReason: "stopped parent walk due non-AX parent"
                 )
-                break
             }
 
             current = unsafeDowncast(parent, to: AXUIElement.self)
         }
 
+        return logAndReturnAncestryVerdict(
+            ancestry,
+            hostFamily: hostFamily,
+            axPoint: axPoint,
+            appKitPoint: appKitPoint
+        )
+    }
+
+    static func acceptsMatchedTabAncestry(
+        _ ancestry: [TabAncestryNode],
+        hostFamily: TabHostFamily
+    ) -> Bool {
+        guard ancestry.contains(where: \.matchedTabElement) else {
+            return false
+        }
+
+        if ancestry.contains(where: isPageContentMarker) {
+            return false
+        }
+
+        let matchedRadioTabButton = ancestry.contains {
+            $0.matchedTabElement &&
+                $0.role == "AXRadioButton" &&
+                tabSubroles.contains($0.subrole)
+        }
+
+        guard matchedRadioTabButton else {
+            return true
+        }
+
+        if hostFamily == .webKit {
+            return true
+        }
+
+        return ancestry.contains { browserChromeContainerRoles.contains($0.role) }
+    }
+
+    private static func logAndReturnAncestryVerdict(
+        _ ancestry: [TabAncestryNode],
+        hostFamily: TabHostFamily,
+        axPoint: CGPoint,
+        appKitPoint: CGPoint,
+        interruptionReason: String? = nil
+    ) -> Bool {
+        let ancestrySummary = formattedAncestry(ancestry)
+
+        if ancestry.contains(where: \.matchedTabElement) {
+            let isAccepted = acceptsMatchedTabAncestry(
+                ancestry,
+                hostFamily: hostFamily
+            )
+            let interruptionSuffix = interruptionReason.map { " after \($0)" } ?? ""
+            DebugLog.debug(
+                DebugLog.dock,
+                "BrowserTabProbe \(isAccepted ? "matched" : "rejected") tab ancestry at AX point \(NSStringFromPoint(axPoint))\(interruptionSuffix): [\(ancestrySummary)]"
+            )
+            return isAccepted
+        }
+
+        let interruptionPrefix = interruptionReason.map { "\($0); " } ?? ""
         DebugLog.debug(
             DebugLog.dock,
-            "BrowserTabProbe no tab match at AX point \(NSStringFromPoint(axPoint)) (AppKit \(NSStringFromPoint(appKitPoint))); ancestry [\(ancestry.joined(separator: " -> "))]"
+            "BrowserTabProbe \(interruptionPrefix)no tab match at AX point \(NSStringFromPoint(axPoint)) (AppKit \(NSStringFromPoint(appKitPoint))); ancestry [\(ancestrySummary)]"
         )
         return false
+    }
+
+    private static func formattedAncestry(_ ancestry: [TabAncestryNode]) -> String {
+        ancestry.enumerated()
+            .map { depth, node in
+                let matchedPrefix = node.matchedTabElement ? "*" : ""
+                return "d\(depth):\(matchedPrefix)\(node.role)/\(node.subrole)/\(node.title)"
+            }
+            .joined(separator: " -> ")
+    }
+
+    private static func isPageContentMarker(_ node: TabAncestryNode) -> Bool {
+        if pageContentRoles.contains(node.role) {
+            return true
+        }
+
+        if pageContentSubroles.contains(node.subrole) {
+            return true
+        }
+
+        return node.subrole.hasPrefix("AXLandmark")
     }
 
     private static func stringAttribute(_ attribute: CFString, from element: AXUIElement) -> String? {

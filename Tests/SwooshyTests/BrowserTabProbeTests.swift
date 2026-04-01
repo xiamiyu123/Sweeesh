@@ -46,4 +46,91 @@ struct BrowserTabProbeTests {
             ) == false
         )
     }
+
+    @Test
+    func rejectsPageContentTabsForGenericHosts() {
+        let ancestry = [
+            BrowserTabProbe.TabAncestryNode(
+                role: "AXRadioButton",
+                subrole: "AXTabButton",
+                title: "",
+                matchedTabElement: true
+            ),
+            BrowserTabProbe.TabAncestryNode(
+                role: "AXGroup",
+                subrole: "AXTabPanel",
+                title: "",
+                matchedTabElement: false
+            ),
+            BrowserTabProbe.TabAncestryNode(
+                role: "AXGroup",
+                subrole: "AXLandmarkMain",
+                title: "",
+                matchedTabElement: false
+            ),
+            BrowserTabProbe.TabAncestryNode(
+                role: "AXWebArea",
+                subrole: "",
+                title: "",
+                matchedTabElement: false
+            ),
+        ]
+
+        #expect(
+            BrowserTabProbe.acceptsMatchedTabAncestry(
+                ancestry,
+                hostFamily: .generic
+            ) == false
+        )
+    }
+
+    @Test
+    func acceptsSafariStyleTabsForWebKitHosts() {
+        let ancestry = [
+            BrowserTabProbe.TabAncestryNode(
+                role: "AXRadioButton",
+                subrole: "AXTabButton",
+                title: "",
+                matchedTabElement: true
+            ),
+            BrowserTabProbe.TabAncestryNode(
+                role: "AXGroup",
+                subrole: "",
+                title: "",
+                matchedTabElement: false
+            ),
+        ]
+
+        #expect(
+            BrowserTabProbe.acceptsMatchedTabAncestry(
+                ancestry,
+                hostFamily: .webKit
+            )
+        )
+    }
+
+    @Test
+    func acceptsChromiumTabsWithChromeContainers() {
+        let ancestry = [
+            BrowserTabProbe.TabAncestryNode(
+                role: "AXRadioButton",
+                subrole: "AXTabButton",
+                title: "",
+                matchedTabElement: true
+            ),
+            BrowserTabProbe.TabAncestryNode(
+                role: "AXToolbar",
+                subrole: "",
+                title: "",
+                matchedTabElement: false
+            ),
+        ]
+
+        #expect(
+            BrowserTabProbe.acceptsMatchedTabAncestry(
+                ancestry,
+                hostFamily: .generic
+            )
+        )
+    }
 }

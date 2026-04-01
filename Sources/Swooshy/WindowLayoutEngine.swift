@@ -11,8 +11,52 @@ struct WindowActionPreview: Equatable, Sendable {
         case centered
     }
 
+    struct SizeBounds: Equatable, Sendable {
+        var minimumWidth: CGFloat?
+        var maximumWidth: CGFloat?
+        var minimumHeight: CGFloat?
+        var maximumHeight: CGFloat?
+
+        var hasConstraints: Bool {
+            minimumWidth != nil ||
+            maximumWidth != nil ||
+            minimumHeight != nil ||
+            maximumHeight != nil
+        }
+
+        func constrainedSize(for targetSize: CGSize) -> CGSize {
+            CGSize(
+                width: constrainedDimension(
+                    targetSize.width,
+                    minimum: minimumWidth,
+                    maximum: maximumWidth
+                ),
+                height: constrainedDimension(
+                    targetSize.height,
+                    minimum: minimumHeight,
+                    maximum: maximumHeight
+                )
+            )
+        }
+
+        private func constrainedDimension(
+            _ value: CGFloat,
+            minimum: CGFloat?,
+            maximum: CGFloat?
+        ) -> CGFloat {
+            var constrainedValue = value
+            if let minimum {
+                constrainedValue = max(constrainedValue, minimum)
+            }
+            if let maximum {
+                constrainedValue = min(constrainedValue, maximum)
+            }
+            return constrainedValue
+        }
+    }
+
     struct Observation: Equatable, Sendable {
-        var minimumSize: CGSize
+        var sizeBounds: SizeBounds
         var horizontalAnchor: AxisAnchor?
         var verticalAnchor: AxisAnchor?
     }
@@ -128,12 +172,12 @@ struct WindowLayoutEngine {
         defaultHorizontalAnchor: WindowActionPreview.AxisAnchor,
         defaultVerticalAnchor: WindowActionPreview.AxisAnchor
     ) -> CGRect {
-        let observedMinimumSize = observation?.minimumSize ?? targetFrame.size
+        let observedSize = observation?.sizeBounds.constrainedSize(for: targetFrame.size) ?? targetFrame.size
         let horizontalAnchor = observation?.horizontalAnchor ?? defaultHorizontalAnchor
         let verticalAnchor = observation?.verticalAnchor ?? defaultVerticalAnchor
 
-        let width = max(targetFrame.width, observedMinimumSize.width)
-        let height = max(targetFrame.height, observedMinimumSize.height)
+        let width = observedSize.width
+        let height = observedSize.height
 
         let originX = anchoredOrigin(
             min: targetFrame.minX,

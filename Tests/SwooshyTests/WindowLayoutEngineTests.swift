@@ -123,7 +123,12 @@ struct WindowLayoutEngineTests {
             for: .leftHalf,
             targetFrame: targetFrame,
             observation: WindowActionPreview.Observation(
-                minimumSize: CGSize(width: 860, height: 900),
+                sizeBounds: WindowActionPreview.SizeBounds(
+                    minimumWidth: 860,
+                    maximumWidth: nil,
+                    minimumHeight: nil,
+                    maximumHeight: nil
+                ),
                 horizontalAnchor: .leadingEdge,
                 verticalAnchor: .leadingEdge
             )
@@ -141,7 +146,12 @@ struct WindowLayoutEngineTests {
             for: .rightHalf,
             targetFrame: targetFrame,
             observation: WindowActionPreview.Observation(
-                minimumSize: CGSize(width: 860, height: 900),
+                sizeBounds: WindowActionPreview.SizeBounds(
+                    minimumWidth: 860,
+                    maximumWidth: nil,
+                    minimumHeight: nil,
+                    maximumHeight: nil
+                ),
                 horizontalAnchor: .trailingEdge,
                 verticalAnchor: .leadingEdge
             )
@@ -158,13 +168,41 @@ struct WindowLayoutEngineTests {
             for: .rightHalf,
             targetFrame: targetFrame,
             observation: WindowActionPreview.Observation(
-                minimumSize: CGSize(width: 860, height: 900),
+                sizeBounds: WindowActionPreview.SizeBounds(
+                    minimumWidth: 860,
+                    maximumWidth: nil,
+                    minimumHeight: nil,
+                    maximumHeight: nil
+                ),
                 horizontalAnchor: .leadingEdge,
                 verticalAnchor: .leadingEdge
             )
         )
 
         #expect(preview?.frame == CGRect(x: 720, y: 0, width: 860, height: 900))
+    }
+
+    @Test
+    func previewFrameShrinksMaximizeFromCenterForObservedMaximumSize() {
+        let targetFrame = CGRect(x: 0, y: 0, width: 1440, height: 900)
+
+        let preview = engine.preview(
+            for: .maximize,
+            targetFrame: targetFrame,
+            observation: WindowActionPreview.Observation(
+                sizeBounds: WindowActionPreview.SizeBounds(
+                    minimumWidth: nil,
+                    maximumWidth: 1200,
+                    minimumHeight: nil,
+                    maximumHeight: 800
+                ),
+                horizontalAnchor: .centered,
+                verticalAnchor: .centered
+            )
+        )
+
+        #expect(preview?.frame == CGRect(x: 120, y: 50, width: 1200, height: 800))
+        #expect(preview?.style == .area)
     }
 
     @Test

@@ -26,30 +26,80 @@ private enum FrameApplicationOutcome {
     case constrained(CGRect)
 }
 
+private struct FrameWriteResult {
+    let sizeError: AXError
+    let positionError: AXError
+
+    var succeeded: Bool {
+        sizeError == .success && positionError == .success
+    }
+}
+
 @MainActor
-private final class ObservedWindowConstraintStore {
-    private var observationsByApplicationKey: [String: [WindowAction: WindowActionPreview.Observation]] = [:]
+final class ObservedWindowConstraintStore {
+    private struct ApplicationConstraints {
+        var sharedMaximumSizeBounds = WindowActionPreview.SizeBounds(
+            minimumWidth: nil,
+            maximumWidth: nil,
+            minimumHeight: nil,
+            maximumHeight: nil
+        )
+        var observationsByAction: [WindowAction: WindowActionPreview.Observation] = [:]
+    }
+
+    private var constraintsByApplicationKey: [String: ApplicationConstraints] = [:]
 
     func observation(
         for applicationKey: String,
         action: WindowAction
     ) -> WindowActionPreview.Observation? {
-        observationsByApplicationKey[applicationKey]?[action]
+        guard let applicationConstraints = constraintsByApplicationKey[applicationKey] else {
+            return nil
+        }
+
+        let sharedMaximumSizeBounds = applicationConstraints.sharedMaximumSizeBounds
+        let actionObservation = applicationConstraints.observationsByAction[action]
+        let mergedSizeBounds = merged(
+            actionObservation?.sizeBounds ?? emptySizeBounds(),
+            with: sharedMaximumSizeBounds
+        )
+
+        guard
+            mergedSizeBounds.hasConstraints ||
+            actionObservation?.horizontalAnchor != nil ||
+            actionObservation?.verticalAnchor != nil
+        else {
+            return nil
+        }
+
+        return WindowActionPreview.Observation(
+            sizeBounds: mergedSizeBounds,
+            horizontalAnchor: actionObservation?.horizontalAnchor,
+            verticalAnchor: actionObservation?.verticalAnchor
+        )
     }
 
     func record(
-        minimumSize: CGSize,
+        sizeBounds: WindowActionPreview.SizeBounds,
         horizontalAnchor: WindowActionPreview.AxisAnchor?,
         verticalAnchor: WindowActionPreview.AxisAnchor?,
         action: WindowAction,
         for applicationKey: String
     ) {
-        var observations = observationsByApplicationKey[applicationKey] ?? [:]
+        var applicationConstraints = constraintsByApplicationKey[applicationKey] ?? ApplicationConstraints()
 
-        if var existingObservation = observations[action] {
-            existingObservation.minimumSize = CGSize(
-                width: max(existingObservation.minimumSize.width, minimumSize.width),
-                height: max(existingObservation.minimumSize.height, minimumSize.height)
+        let sharedMaximumSizeBounds = sharedMaximumBounds(from: sizeBounds)
+        if sharedMaximumSizeBounds.hasConstraints {
+            applicationConstraints.sharedMaximumSizeBounds = merged(
+                applicationConstraints.sharedMaximumSizeBounds,
+                with: sharedMaximumSizeBounds
+            )
+        }
+
+        if var existingObservation = applicationConstraints.observationsByAction[action] {
+            existingObservation.sizeBounds = merged(
+                existingObservation.sizeBounds,
+                with: sizeBounds
             )
             if let horizontalAnchor {
                 existingObservation.horizontalAnchor = horizontalAnchor
@@ -57,16 +107,74 @@ private final class ObservedWindowConstraintStore {
             if let verticalAnchor {
                 existingObservation.verticalAnchor = verticalAnchor
             }
-            observations[action] = existingObservation
+            applicationConstraints.observationsByAction[action] = existingObservation
         } else {
-            observations[action] = WindowActionPreview.Observation(
-                minimumSize: minimumSize,
+            applicationConstraints.observationsByAction[action] = WindowActionPreview.Observation(
+                sizeBounds: sizeBounds,
                 horizontalAnchor: horizontalAnchor,
                 verticalAnchor: verticalAnchor
             )
         }
 
-        observationsByApplicationKey[applicationKey] = observations
+        constraintsByApplicationKey[applicationKey] = applicationConstraints
+    }
+
+    private func merged(
+        _ lhs: WindowActionPreview.SizeBounds,
+        with rhs: WindowActionPreview.SizeBounds
+    ) -> WindowActionPreview.SizeBounds {
+        WindowActionPreview.SizeBounds(
+            minimumWidth: mergeMaximum(lhs.minimumWidth, rhs.minimumWidth),
+            maximumWidth: mergeMinimum(lhs.maximumWidth, rhs.maximumWidth),
+            minimumHeight: mergeMaximum(lhs.minimumHeight, rhs.minimumHeight),
+            maximumHeight: mergeMinimum(lhs.maximumHeight, rhs.maximumHeight)
+        )
+    }
+
+    private func sharedMaximumBounds(
+        from sizeBounds: WindowActionPreview.SizeBounds
+    ) -> WindowActionPreview.SizeBounds {
+        WindowActionPreview.SizeBounds(
+            minimumWidth: nil,
+            maximumWidth: sizeBounds.maximumWidth,
+            minimumHeight: nil,
+            maximumHeight: sizeBounds.maximumHeight
+        )
+    }
+
+    private func emptySizeBounds() -> WindowActionPreview.SizeBounds {
+        WindowActionPreview.SizeBounds(
+            minimumWidth: nil,
+            maximumWidth: nil,
+            minimumHeight: nil,
+            maximumHeight: nil
+        )
+    }
+
+    private func mergeMaximum(_ lhs: CGFloat?, _ rhs: CGFloat?) -> CGFloat? {
+        switch (lhs, rhs) {
+        case let (.some(lhs), .some(rhs)):
+            return max(lhs, rhs)
+        case let (.some(lhs), .none):
+            return lhs
+        case let (.none, .some(rhs)):
+            return rhs
+        case (.none, .none):
+            return nil
+        }
+    }
+
+    private func mergeMinimum(_ lhs: CGFloat?, _ rhs: CGFloat?) -> CGFloat? {
+        switch (lhs, rhs) {
+        case let (.some(lhs), .some(rhs)):
+            return min(lhs, rhs)
+        case let (.some(lhs), .none):
+            return lhs
+        case let (.none, .some(rhs)):
+            return rhs
+        case (.none, .none):
+            return nil
+        }
     }
 }
 
@@ -308,15 +416,15 @@ struct WindowManager: WindowManaging {
         )
     }
 
-    private func recordObservedConstraintSize(
-        _ size: CGSize,
+    private func recordObservedConstraintBounds(
+        _ sizeBounds: WindowActionPreview.SizeBounds,
         horizontalAnchor: WindowActionPreview.AxisAnchor?,
         verticalAnchor: WindowActionPreview.AxisAnchor?,
         action: WindowAction,
         for application: NSRunningApplication
     ) {
         observedWindowConstraintStore.record(
-            minimumSize: size,
+            sizeBounds: sizeBounds,
             horizontalAnchor: horizontalAnchor,
             verticalAnchor: verticalAnchor,
             action: action,
@@ -346,22 +454,16 @@ struct WindowManager: WindowManaging {
             return
         }
 
-        let widthExpanded = appliedFrame.width > requestedFrame.width + 1
-        let heightExpanded = appliedFrame.height > requestedFrame.height + 1
-        guard widthExpanded || heightExpanded else {
-            return
-        }
-
-        let observedMinimumSize = CGSize(
-            width: max(appliedFrame.width, requestedFrame.width),
-            height: max(appliedFrame.height, requestedFrame.height)
-        )
         let previewObservation = observedPreviewObservation(
             requestedFrame: requestedFrame,
             appliedFrame: appliedFrame
         )
-        recordObservedConstraintSize(
-            observedMinimumSize,
+        guard previewObservation.sizeBounds.hasConstraints else {
+            return
+        }
+
+        recordObservedConstraintBounds(
+            previewObservation.sizeBounds,
             horizontalAnchor: previewObservation.horizontalAnchor,
             verticalAnchor: previewObservation.verticalAnchor,
             action: action,
@@ -369,7 +471,7 @@ struct WindowManager: WindowManaging {
         )
         DebugLog.debug(
             DebugLog.windows,
-            "Recorded observed window constraint size \(NSStringFromSize(observedMinimumSize)) for \(application.bundleIdentifier ?? application.localizedName ?? "unknown") after requested \(NSStringFromRect(requestedFrame)) applied as \(NSStringFromRect(appliedFrame)); horizontalAnchor = \(String(describing: previewObservation.horizontalAnchor)), verticalAnchor = \(String(describing: previewObservation.verticalAnchor))"
+            "Recorded observed window constraint bounds \(constraintBoundsDescription(previewObservation.sizeBounds)) for \(application.bundleIdentifier ?? application.localizedName ?? "unknown") after requested \(NSStringFromRect(requestedFrame)) applied as \(NSStringFromRect(appliedFrame)); horizontalAnchor = \(String(describing: previewObservation.horizontalAnchor)), verticalAnchor = \(String(describing: previewObservation.verticalAnchor))"
         )
     }
 
@@ -379,9 +481,11 @@ struct WindowManager: WindowManaging {
         tolerance: CGFloat = 1
     ) -> WindowActionPreview.Observation {
         WindowActionPreview.Observation(
-            minimumSize: CGSize(
-                width: max(appliedFrame.width, requestedFrame.width),
-                height: max(appliedFrame.height, requestedFrame.height)
+            sizeBounds: WindowActionPreview.SizeBounds(
+                minimumWidth: appliedFrame.width > requestedFrame.width + tolerance ? appliedFrame.width : nil,
+                maximumWidth: appliedFrame.width < requestedFrame.width - tolerance ? appliedFrame.width : nil,
+                minimumHeight: appliedFrame.height > requestedFrame.height + tolerance ? appliedFrame.height : nil,
+                maximumHeight: appliedFrame.height < requestedFrame.height - tolerance ? appliedFrame.height : nil
             ),
             horizontalAnchor: observedAnchor(
                 requestedMin: requestedFrame.minX,
@@ -423,6 +527,18 @@ struct WindowManager: WindowManaging {
             return .centered
         }
         return nil
+    }
+
+    private func constraintBoundsDescription(_ sizeBounds: WindowActionPreview.SizeBounds) -> String {
+        "[minWidth=\(constraintBoundValue(sizeBounds.minimumWidth)), maxWidth=\(constraintBoundValue(sizeBounds.maximumWidth)), minHeight=\(constraintBoundValue(sizeBounds.minimumHeight)), maxHeight=\(constraintBoundValue(sizeBounds.maximumHeight))]"
+    }
+
+    private func constraintBoundValue(_ value: CGFloat?) -> String {
+        guard let value else {
+            return "nil"
+        }
+
+        return String(format: "%.1f", value)
     }
 
     func minimizeVisibleWindow(of application: DockApplicationTarget) throws -> Bool {
@@ -1139,7 +1255,7 @@ struct WindowManager: WindowManaging {
             "Applying AX frame using \(preferredOrder.rawValue); current AX frame = \(currentFrame.map(NSStringFromRect) ?? "unknown"), target AX frame = \(NSStringFromRect(frame))"
         )
 
-        try applyFrame(
+        let initialWriteResult = applyFrame(
             window: window,
             originValue: positionValue,
             sizeValue: sizeValue,
@@ -1147,6 +1263,47 @@ struct WindowManager: WindowManaging {
             size: size,
             order: preferredOrder
         )
+
+        if initialWriteResult.succeeded == false {
+            if let recoveredOutcome = recoveredFrameOutcome(
+                for: window,
+                targetFrame: frame,
+                requestedOrigin: origin,
+                requestedSize: size,
+                order: preferredOrder,
+                writeResult: initialWriteResult
+            ) {
+                return recoveredOutcome
+            }
+
+            let fallbackOrder = preferredOrder.alternate
+            DebugLog.debug(
+                DebugLog.windows,
+                "AX frame write failed using \(preferredOrder.rawValue); retrying with \(fallbackOrder.rawValue)"
+            )
+
+            let fallbackWriteResult = applyFrame(
+                window: window,
+                originValue: positionValue,
+                sizeValue: sizeValue,
+                origin: origin,
+                size: size,
+                order: fallbackOrder
+            )
+
+            if let recoveredOutcome = recoveredFrameOutcome(
+                for: window,
+                targetFrame: frame,
+                requestedOrigin: origin,
+                requestedSize: size,
+                order: fallbackOrder,
+                writeResult: fallbackWriteResult
+            ) {
+                return recoveredOutcome
+            }
+
+            throw WindowManagerError.unableToSetFrame
+        }
 
         guard let appliedFrame = readFrameBestEffort(of: window, context: "after \(preferredOrder.rawValue) frame write") else {
             return .exact(frame)
@@ -1159,7 +1316,7 @@ struct WindowManager: WindowManaging {
                 "AX frame readback mismatch after \(preferredOrder.rawValue). Applied = \(NSStringFromRect(appliedFrame)), target = \(NSStringFromRect(frame)). Retrying with \(fallbackOrder.rawValue)"
             )
 
-            try applyFrame(
+            let fallbackWriteResult = applyFrame(
                 window: window,
                 originValue: positionValue,
                 sizeValue: sizeValue,
@@ -1167,6 +1324,21 @@ struct WindowManager: WindowManaging {
                 size: size,
                 order: fallbackOrder
             )
+
+            if fallbackWriteResult.succeeded == false {
+                if let recoveredOutcome = recoveredFrameOutcome(
+                    for: window,
+                    targetFrame: frame,
+                    requestedOrigin: origin,
+                    requestedSize: size,
+                    order: fallbackOrder,
+                    writeResult: fallbackWriteResult
+                ) {
+                    return recoveredOutcome
+                }
+
+                throw WindowManagerError.unableToSetFrame
+            }
 
             guard
                 let retriedFrame = readFrameBestEffort(of: window, context: "after \(fallbackOrder.rawValue) frame write")
@@ -1203,6 +1375,44 @@ struct WindowManager: WindowManaging {
         return .exact(appliedFrame)
     }
 
+    private func recoveredFrameOutcome(
+        for window: AXUIElement,
+        targetFrame: CGRect,
+        requestedOrigin: CGPoint,
+        requestedSize: CGSize,
+        order: FrameWriteOrder,
+        writeResult: FrameWriteResult
+    ) -> FrameApplicationOutcome? {
+        DebugLog.error(
+            DebugLog.accessibility,
+            "Failed to set frame for window \(windowSummary([window])) using \(order.rawValue). Requested origin = \(NSStringFromPoint(requestedOrigin)), size = \(NSStringFromSize(requestedSize)), size error = \(writeResult.sizeError.rawValue), position error = \(writeResult.positionError.rawValue)"
+        )
+
+        guard
+            let recoveredFrame = readFrameBestEffort(of: window, context: "after failed \(order.rawValue) frame write")
+        else {
+            return nil
+        }
+
+        if framesAreClose(recoveredFrame, targetFrame) {
+            DebugLog.info(
+                DebugLog.windows,
+                "Recovered exact frame after failed AX write for window \(windowSummary([window])). Requested = \(NSStringFromRect(targetFrame)), applied = \(NSStringFromRect(recoveredFrame))"
+            )
+            return .exact(recoveredFrame)
+        }
+
+        if isConstraintLimitedFrame(recoveredFrame, comparedTo: targetFrame) {
+            DebugLog.info(
+                DebugLog.windows,
+                "Accepted constrained frame after failed AX write for window \(windowSummary([window])). Requested = \(NSStringFromRect(targetFrame)), applied = \(NSStringFromRect(recoveredFrame))"
+            )
+            return .constrained(recoveredFrame)
+        }
+
+        return nil
+    }
+
     private func readFrameBestEffort(of window: AXUIElement, context: String) -> CGRect? {
         do {
             return try frame(of: window)
@@ -1222,7 +1432,7 @@ struct WindowManager: WindowManaging {
         origin: CGPoint,
         size: CGSize,
         order: FrameWriteOrder
-    ) throws {
+    ) -> FrameWriteResult {
         let sizeError: AXError
         let positionError: AXError
 
@@ -1235,13 +1445,7 @@ struct WindowManager: WindowManaging {
             sizeError = AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, sizeValue)
         }
 
-        guard sizeError == .success, positionError == .success else {
-            DebugLog.error(
-                DebugLog.accessibility,
-                "Failed to set frame for window \(windowSummary([window])) using \(order.rawValue). Requested origin = \(NSStringFromPoint(origin)), size = \(NSStringFromSize(size)), size error = \(sizeError.rawValue), position error = \(positionError.rawValue)"
-            )
-            throw WindowManagerError.unableToSetFrame
-        }
+        return FrameWriteResult(sizeError: sizeError, positionError: positionError)
     }
 
     private func frameWriteOrder(from currentFrame: CGRect?, to targetFrame: CGRect) -> FrameWriteOrder {
@@ -1270,19 +1474,43 @@ struct WindowManager: WindowManaging {
         comparedTo targetFrame: CGRect,
         tolerance: CGFloat = 1
     ) -> Bool {
-        let anchoredToRequestedOrigin =
-            abs(appliedFrame.minX - targetFrame.minX) <= tolerance &&
-            abs(appliedFrame.minY - targetFrame.minY) <= tolerance
-        let anchoredToRequestedMaxX =
-            abs(appliedFrame.maxX - targetFrame.maxX) <= tolerance &&
-            abs(appliedFrame.minY - targetFrame.minY) <= tolerance
-
-        let widthExpanded = appliedFrame.width >= targetFrame.width - tolerance
-        let heightExpanded = appliedFrame.height >= targetFrame.height - tolerance
         let materiallyDifferent = framesAreClose(appliedFrame, targetFrame, tolerance: tolerance) == false
+        let horizontallyAnchored = axisLooksConstraintLimited(
+            requestedMin: targetFrame.minX,
+            requestedMax: targetFrame.maxX,
+            appliedMin: appliedFrame.minX,
+            appliedMax: appliedFrame.maxX,
+            tolerance: tolerance
+        )
+        let verticallyAnchored = axisLooksConstraintLimited(
+            requestedMin: targetFrame.minY,
+            requestedMax: targetFrame.maxY,
+            appliedMin: appliedFrame.minY,
+            appliedMax: appliedFrame.maxY,
+            tolerance: tolerance
+        )
 
-        return materiallyDifferent && widthExpanded && heightExpanded &&
-            (anchoredToRequestedOrigin || anchoredToRequestedMaxX)
+        return materiallyDifferent && horizontallyAnchored && verticallyAnchored
+    }
+
+    private func axisLooksConstraintLimited(
+        requestedMin: CGFloat,
+        requestedMax: CGFloat,
+        appliedMin: CGFloat,
+        appliedMax: CGFloat,
+        tolerance: CGFloat
+    ) -> Bool {
+        let matchesBothEdges =
+            abs(appliedMin - requestedMin) <= tolerance &&
+            abs(appliedMax - requestedMax) <= tolerance
+
+        return matchesBothEdges || observedAnchor(
+            requestedMin: requestedMin,
+            requestedMax: requestedMax,
+            appliedMin: appliedMin,
+            appliedMax: appliedMax,
+            tolerance: tolerance
+        ) != nil
     }
 
     private func logScreenConfiguration(_ screens: [NSScreen], preferredAppKitPoint: CGPoint?) {

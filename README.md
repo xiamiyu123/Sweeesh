@@ -91,6 +91,9 @@ layout:
 * **Two-finger swipe left**: Snap the current window to the left half.
 * **Two-finger swipe right**: Snap the current window to the right half.
 * Great for side-by-side comparison with another window.
+* **Preview**: You can see where the window will snap. For some apps with size
+  constraints, Swooshy may preview the wrong frame; when that happens, Swooshy
+  remembers the mismatch and improves the preview next time.
 
 <br>
 <img src="docs/images/step3.jpg" width="600" alt="Title bar gesture for snapping windows left and right" style="border-radius: 8px;">
@@ -98,7 +101,25 @@ layout:
 </details>
 
 <details>
-<summary><b>Page 6: Custom settings and global shortcuts</b></summary>
+<summary><b>Page 6: Title bar gesture - corner snap mode</b></summary>
+
+After hovering over the title bar or Dock, you can also enter a dedicated
+corner snap mode:
+
+* **Two-finger long press for 0.2s, then drag toward a corner**: Enter corner
+  snap mode.
+* While corner snap mode is active, sliding toward a screen edge lets you dock
+  the app into one of the four corners.
+* You can adjust the required hold duration later from `Settings...` ->
+  `Advanced Settings`.
+
+<br>
+<img src="docs/images/step3.jpg" width="600" alt="Title bar gesture for corner snap mode" style="border-radius: 8px;">
+
+</details>
+
+<details>
+<summary><b>Page 7: Custom settings and global shortcuts</b></summary>
 
 If you prefer the keyboard, Swooshy also ships with global shortcuts. Every
 gesture mapping and hotkey can be re-recorded and edited from `Settings...` in

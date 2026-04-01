@@ -78,6 +78,13 @@
 "guide.page.titlebar_horizontal.message" = "标题栏区域同样支持左右滑动，用来快速整理当前窗口布局。";
 "guide.page.titlebar_horizontal.bullet1" = "双指左滑：将当前窗口贴靠到屏幕左半边。";
 "guide.page.titlebar_horizontal.bullet2" = "双指右滑：将当前窗口贴靠到屏幕右半边。";
+"guide.page.titlebar_horizontal.bullet3" = "预览：可以直观观察窗口贴靠后所处位置。对于部分有大小限制的应用，Swooshy 可能出现预览错误；此时 Swooshy 会记忆这次偏差，并在下一次改进预览。";
+
+"guide.page.corner_snap.title" = "标题栏手势：角落贴靠模式";
+"guide.page.corner_snap.message" = "在标题栏或 Dock 上悬停后，你也可以进入专门的角落贴靠模式。";
+"guide.page.corner_snap.bullet1" = "双指长按 0.2 秒后拖向角落，即可进入角落贴靠模式。";
+"guide.page.corner_snap.bullet2" = "在角落贴靠模式下向屏幕边缘滑动，可以将应用停靠在屏幕四角。";
+"guide.page.corner_snap.bullet3" = "触发所需时长也可以稍后在“高级设置”里修改。";
 
 "guide.page.shortcuts.title" = "自定义设置与全局快捷键";
 "guide.page.shortcuts.message" = "如果你更习惯键盘，Swooshy 也提供了全局快捷键；所有手势映射和快捷键都可以在“设置…”里录制和修改。";

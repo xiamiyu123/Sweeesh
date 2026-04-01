@@ -78,6 +78,13 @@
 "guide.page.titlebar_horizontal.message" = "The title bar trigger area also supports horizontal swipes for fast window arrangement.";
 "guide.page.titlebar_horizontal.bullet1" = "Two-finger swipe left: snap the current window to the left half of the screen.";
 "guide.page.titlebar_horizontal.bullet2" = "Two-finger swipe right: snap the current window to the right half of the screen.";
+"guide.page.titlebar_horizontal.bullet3" = "Preview: you can see where the window will snap. For some apps with size constraints, Swooshy may preview the wrong frame, then remember that mismatch and improve the preview next time.";
+
+"guide.page.corner_snap.title" = "Title Bar Gestures: Corner Snap Mode";
+"guide.page.corner_snap.message" = "After hovering over the title bar or Dock, you can also long-press briefly to switch into corner snapping.";
+"guide.page.corner_snap.bullet1" = "Two-finger long press for 0.2 seconds, then drag toward a corner to enter corner snap mode.";
+"guide.page.corner_snap.bullet2" = "While corner snap mode is active, sliding toward a screen edge lets you dock the app into one of the four corners.";
+"guide.page.corner_snap.bullet3" = "You can change the required hold duration later in Settings under Advanced Settings.";
 
 "guide.page.shortcuts.title" = "Customization and Global Hotkeys";
 "guide.page.shortcuts.message" = "If you prefer the keyboard, Swooshy also includes global shortcuts. Every gesture mapping and hotkey can be recorded and changed from Settings.";

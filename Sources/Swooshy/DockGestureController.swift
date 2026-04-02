@@ -47,6 +47,7 @@ final class DockGestureController {
     private var activeCornerDragAnchorPoint: CGPoint?
     private var activeCornerDragTouchOrigin: CGPoint?
     private var cornerDragPreviewCache = CornerDragPreviewCache()
+    private var smoothWindowPreviewSession: SmoothWindowPreviewSession?
     private let cornerDragTranslationThreshold: CGFloat = 0.06
 
     private enum PendingReleaseAction {
@@ -189,6 +190,7 @@ final class DockGestureController {
         activeCornerDragAnchorPoint = nil
         activeCornerDragTouchOrigin = nil
         cornerDragPreviewCache.clear()
+        finishSmoothWindowPreview(restore: true)
         dockProbe.clearCache()
         titleBarProbe.clearCache()
         windowManager.shutdown()
@@ -241,6 +243,7 @@ final class DockGestureController {
         activeCornerDragAnchorPoint = nil
         activeCornerDragTouchOrigin = nil
         cornerDragPreviewCache.clear()
+        finishSmoothWindowPreview(restore: true)
         dockProbe.clearCache()
         titleBarProbe.clearCache()
         pendingTouchFrame = nil
@@ -513,6 +516,7 @@ final class DockGestureController {
             }
             pendingReleaseAction = nil
             clearTouchAnchor()
+            finishSmoothWindowPreview(restore: false)
             gestureFeedbackPresenter.dismiss()
             activeCornerDragApplication = application
             activeCornerDragSource = source
@@ -694,7 +698,10 @@ final class DockGestureController {
         }
 
         let persistent = settingsStore.executeGestureOnRelease
-        let preview = persistent ? snapPreview(for: action, anchorPoint: anchorPoint) : nil
+        let useSmoothWindowPreview = shouldUseSmoothWindowPreview(for: action)
+        let preview = persistent && useSmoothWindowPreview == false
+            ? snapPreview(for: action, anchorPoint: anchorPoint)
+            : nil
         gestureFeedbackPresenter.show(
             gesture: event.gesture,
             gestureTitle: event.gesture.title(preferredLanguages: settingsStore.preferredLanguages),
@@ -715,10 +722,17 @@ final class DockGestureController {
                 anchorPoint: anchorPoint,
                 replacesWithTabClose: replacesWithTabClose
             )
+            if useSmoothWindowPreview {
+                finishSmoothWindowPreview(restore: false)
+                beginSmoothPreviewIfNeeded(for: action, anchorPoint: anchorPoint)
+            } else {
+                finishSmoothWindowPreview(restore: true)
+            }
             storeTouchAnchor(gesture: event.gesture, touches: touches)
             installEscMonitor()
             DebugLog.info(DebugLog.dock, "Deferred title-bar action \(String(describing: action)) until finger release")
         } else {
+            finishSmoothWindowPreview(restore: true)
             executeTitleBarAction(
                 action,
                 event: event,
@@ -829,7 +843,8 @@ final class DockGestureController {
             return
         }
 
-        let preview = nextAction.flatMap { action in
+        let useSmoothWindowPreview = shouldUseSmoothWindowPreview(for: nextAction)
+        let preview = useSmoothWindowPreview ? nil : nextAction.flatMap { action in
             cornerDragPreviewCache.resolvePreview(
                 for: application,
                 action: action,
@@ -870,6 +885,17 @@ final class DockGestureController {
             persistent: true,
             preview: preview
         )
+
+        if useSmoothWindowPreview {
+            updateSmoothPreview(
+                for: nextAction,
+                application: application,
+                anchorPoint: anchorPoint,
+                source: source
+            )
+        } else {
+            finishSmoothWindowPreview(restore: true)
+        }
     }
 
     private func resetCornerDragSession(
@@ -890,6 +916,7 @@ final class DockGestureController {
         activeCornerDragAnchorPoint = nil
         activeCornerDragTouchOrigin = nil
         cornerDragPreviewCache.clear()
+        finishSmoothWindowPreview(restore: dismissFeedback)
         if dismissFeedback {
             gestureFeedbackPresenter.dismiss()
             removeEscMonitor()
@@ -953,6 +980,7 @@ final class DockGestureController {
         pendingReleaseAction = nil
         clearTouchAnchor()
         resetStandardRecognizers(rebuildRecognizers: rebuildRecognizers)
+        finishSmoothWindowPreview(restore: true)
         resetCornerDragSession(
             dismissFeedback: false,
             rebuildRecognizers: rebuildRecognizers
@@ -1120,6 +1148,7 @@ final class DockGestureController {
 
     private func cancelPendingReleaseAction() {
         guard pendingReleaseAction != nil || activeCornerDragApplication != nil else {
+            finishSmoothWindowPreview(restore: true)
             removeEscMonitor()
             return
         }
@@ -1132,6 +1161,7 @@ final class DockGestureController {
         pendingReleaseAction = nil
         clearTouchAnchor()
         removeEscMonitor()
+        finishSmoothWindowPreview(restore: false)
         gestureFeedbackPresenter.scheduleDismiss()
 
         switch action {
@@ -1277,6 +1307,124 @@ final class DockGestureController {
         if shouldCancel {
             DebugLog.info(DebugLog.dock, "Reverse movement detected for \(gestureKind.rawValue), cancelling pending action")
             cancelPendingReleaseAction()
+        }
+    }
+
+    private func shouldUseSmoothWindowPreview(for action: WindowAction?) -> Bool {
+        settingsStore.executeGestureOnRelease &&
+            settingsStore.smoothWindowPreviewEnabled &&
+            action?.supportsSnapPreview == true
+    }
+
+    private func beginSmoothPreviewIfNeeded(for action: WindowAction, anchorPoint: CGPoint) {
+        guard shouldUseSmoothWindowPreview(for: action) else {
+            finishSmoothWindowPreview(restore: true)
+            return
+        }
+
+        if smoothWindowPreviewSession == nil {
+            do {
+                smoothWindowPreviewSession = try windowManager.beginSmoothPreviewSession(
+                    for: action,
+                    layoutEngine: layoutEngine,
+                    preferredAppKitPoint: anchorPoint
+                )
+            } catch {
+                DebugLog.debug(DebugLog.dock, "Unable to start smooth window preview: \(error.localizedDescription)")
+                smoothWindowPreviewSession = nil
+                return
+            }
+        }
+
+        do {
+            let targetFrame = try windowManager.smoothPreviewTargetFrame(
+                for: action,
+                layoutEngine: layoutEngine,
+                preferredAppKitPoint: anchorPoint
+            )
+            smoothWindowPreviewSession?.animate(to: targetFrame)
+        } catch {
+            DebugLog.debug(DebugLog.dock, "Unable to update smooth window preview target: \(error.localizedDescription)")
+        }
+    }
+
+    private func updateSmoothPreview(
+        for action: WindowAction?,
+        application: DockApplicationTarget,
+        anchorPoint: CGPoint,
+        source: CornerDragSource
+    ) {
+        guard let action, shouldUseSmoothWindowPreview(for: action) else {
+            finishSmoothWindowPreview(restore: true)
+            return
+        }
+
+        if smoothWindowPreviewSession == nil {
+            do {
+                switch source {
+                case .dock:
+                    smoothWindowPreviewSession = try windowManager.beginSmoothPreviewSession(
+                        for: action,
+                        on: application,
+                        layoutEngine: layoutEngine,
+                        preferredAppKitPoint: anchorPoint
+                    )
+                case .titleBar:
+                    smoothWindowPreviewSession = try windowManager.beginSmoothPreviewSession(
+                        for: action,
+                        layoutEngine: layoutEngine,
+                        preferredAppKitPoint: anchorPoint
+                    )
+                }
+            } catch {
+                DebugLog.debug(DebugLog.dock, "Unable to start corner smooth preview: \(error.localizedDescription)")
+                smoothWindowPreviewSession = nil
+                return
+            }
+        }
+
+        do {
+            let targetFrame: CGRect
+            switch source {
+            case .dock:
+                targetFrame = try windowManager.smoothPreviewTargetFrame(
+                    for: action,
+                    on: application,
+                    layoutEngine: layoutEngine,
+                    preferredAppKitPoint: anchorPoint
+                )
+            case .titleBar:
+                targetFrame = try windowManager.smoothPreviewTargetFrame(
+                    for: action,
+                    layoutEngine: layoutEngine,
+                    preferredAppKitPoint: anchorPoint
+                )
+            }
+            smoothWindowPreviewSession?.animate(to: targetFrame)
+        } catch {
+            DebugLog.debug(DebugLog.dock, "Unable to update corner smooth preview: \(error.localizedDescription)")
+        }
+    }
+
+    private func finishSmoothWindowPreview(restore: Bool) {
+        guard let smoothWindowPreviewSession else {
+            return
+        }
+
+        if restore {
+            smoothWindowPreviewSession.restore()
+            let session = smoothWindowPreviewSession
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(nanoseconds: 160_000_000)
+                guard let self, self.smoothWindowPreviewSession === session else {
+                    return
+                }
+                session.finish()
+                self.smoothWindowPreviewSession = nil
+            }
+        } else {
+            smoothWindowPreviewSession.finish()
+            self.smoothWindowPreviewSession = nil
         }
     }
 

@@ -173,6 +173,16 @@ private struct SettingsView: View {
                     Text(settingsStore.localized("settings.gesture_execute_on_release.footer"))
                 }
 
+                Toggle(
+                    settingsStore.localized("settings.smooth_window_preview.enabled"),
+                    isOn: $settingsStore.smoothWindowPreviewEnabled
+                )
+                .disabled(settingsStore.executeGestureOnRelease == false)
+
+                SettingsHintGroup {
+                    Text(settingsStore.localized("settings.smooth_window_preview.footer"))
+                }
+
                 GestureHUDPreviewStrip(settingsStore: settingsStore)
             } header: {
                 Text(settingsStore.localized("settings.section.gestures"))

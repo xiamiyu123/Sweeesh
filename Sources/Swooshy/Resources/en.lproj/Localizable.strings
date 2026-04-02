@@ -136,6 +136,8 @@
 "settings.gesture_hud.footer" = "Dock and title-bar gestures share the same trackpad monitor. Choose how the on-screen gesture HUD should look.";
 "settings.gesture_execute_on_release.enabled" = "Execute gesture on release";
 "settings.gesture_execute_on_release.footer" = "When enabled, gestures are recognized and previewed immediately, but the action is only executed after you lift your fingers. Press Esc to cancel a pending gesture.";
+"settings.smooth_window_preview.enabled" = "Move the window smoothly instead of showing snap preview";
+"settings.smooth_window_preview.footer" = "Only applies when Execute gesture on release is enabled. Supported title-bar snap gestures and corner snap move the real window first, then return it if you reverse-cancel or press Esc.";
 "settings.gesture_hud.style.classic" = "Detailed";
 "settings.gesture_hud.style.elegant" = "Elegant";
 "settings.gesture_hud.style.minimal" = "Minimal";

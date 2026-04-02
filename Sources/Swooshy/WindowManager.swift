@@ -353,6 +353,96 @@ protocol WindowManaging {
 }
 
 @MainActor
+final class SmoothWindowPreviewSession {
+    private let originalAppKitFrame: CGRect
+    private let loadCurrentAppKitFrame: () -> CGRect?
+    private let applyAppKitFrame: (CGRect) throws -> Void
+    private var animationTask: Task<Void, Never>?
+    private var lastTargetFrame: CGRect?
+
+    init(
+        originalAppKitFrame: CGRect,
+        loadCurrentAppKitFrame: @escaping () -> CGRect?,
+        applyAppKitFrame: @escaping (CGRect) throws -> Void
+    ) {
+        self.originalAppKitFrame = originalAppKitFrame
+        self.loadCurrentAppKitFrame = loadCurrentAppKitFrame
+        self.applyAppKitFrame = applyAppKitFrame
+    }
+
+    deinit {
+        animationTask?.cancel()
+    }
+
+    func animate(to targetFrame: CGRect) {
+        guard lastTargetFrame != targetFrame else {
+            return
+        }
+
+        animationTask?.cancel()
+        lastTargetFrame = targetFrame
+
+        let currentFrame = loadCurrentAppKitFrame() ?? originalAppKitFrame
+        let clampedTargetFrame = targetFrame.integral
+
+        guard currentFrame.integral != clampedTargetFrame else {
+            return
+        }
+
+        animationTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let steps = 6
+            let stepDuration: UInt64 = 18_000_000
+
+            for step in 1 ... steps {
+                if Task.isCancelled {
+                    return
+                }
+
+                let progress = CGFloat(step) / CGFloat(steps)
+                let interpolatedFrame = interpolated(
+                    from: currentFrame,
+                    to: clampedTargetFrame,
+                    progress: progress
+                )
+
+                do {
+                    try applyAppKitFrame(interpolatedFrame)
+                } catch {
+                    DebugLog.debug(
+                        DebugLog.windows,
+                        "Smooth preview move failed: \(error.localizedDescription)"
+                    )
+                    return
+                }
+
+                if step < steps {
+                    try? await Task.sleep(nanoseconds: stepDuration)
+                }
+            }
+        }
+    }
+
+    func restore() {
+        animate(to: originalAppKitFrame)
+    }
+
+    func finish() {
+        animationTask?.cancel()
+        animationTask = nil
+    }
+
+    private func interpolated(from start: CGRect, to end: CGRect, progress: CGFloat) -> CGRect {
+        CGRect(
+            x: start.minX + ((end.minX - start.minX) * progress),
+            y: start.minY + ((end.minY - start.minY) * progress),
+            width: start.width + ((end.width - start.width) * progress),
+            height: start.height + ((end.height - start.height) * progress)
+        ).integral
+    }
+}
+
+@MainActor
 struct WindowManager: WindowManaging {
     private let windowOrdering = WindowOrdering()
     private let cycleSessions = WindowCycleSessionStore()
@@ -621,6 +711,86 @@ struct WindowManager: WindowManaging {
             targetFrame: resolvedLayout.targetFrame,
             observation: observedObservation
         )
+    }
+
+    func beginSmoothPreviewSession(
+        for action: WindowAction,
+        layoutEngine: WindowLayoutEngine,
+        preferredAppKitPoint: CGPoint?
+    ) throws -> SmoothWindowPreviewSession {
+        let app = try frontmostApplication()
+        let appElement = AXUIElementCreateApplication(app.processIdentifier)
+        let focusedWindow = try focusedWindowElement(in: appElement)
+        let resolvedLayout = try resolvedWindowActionLayout(
+            for: action,
+            application: app,
+            window: focusedWindow,
+            layoutEngine: layoutEngine,
+            preferredAppKitPoint: preferredAppKitPoint
+        )
+        return smoothPreviewSession(
+            for: focusedWindow,
+            initialAppKitFrame: resolvedLayout.screenGeometry.appKitFrame(fromAXFrame: try frame(of: focusedWindow))
+        )
+    }
+
+    func beginSmoothPreviewSession(
+        for action: WindowAction,
+        on target: DockApplicationTarget,
+        layoutEngine: WindowLayoutEngine,
+        preferredAppKitPoint: CGPoint?
+    ) throws -> SmoothWindowPreviewSession {
+        let app = try runningApplication(matching: target)
+        let appElement = AXUIElementCreateApplication(app.processIdentifier)
+        let targetWindow = try preferredWindowActionTarget(in: app, appElement: appElement)
+        try bringWindowToFront(targetWindow, for: app)
+        let resolvedLayout = try resolvedWindowActionLayout(
+            for: action,
+            application: app,
+            window: targetWindow,
+            layoutEngine: layoutEngine,
+            preferredAppKitPoint: preferredAppKitPoint
+        )
+        return smoothPreviewSession(
+            for: targetWindow,
+            initialAppKitFrame: resolvedLayout.screenGeometry.appKitFrame(fromAXFrame: try frame(of: targetWindow))
+        )
+    }
+
+    func smoothPreviewTargetFrame(
+        for action: WindowAction,
+        layoutEngine: WindowLayoutEngine,
+        preferredAppKitPoint: CGPoint?
+    ) throws -> CGRect {
+        let app = try frontmostApplication()
+        let appElement = AXUIElementCreateApplication(app.processIdentifier)
+        let resolvedLayout = try resolvedWindowActionLayout(
+            for: action,
+            application: app,
+            appElement: appElement,
+            layoutEngine: layoutEngine,
+            preferredAppKitPoint: preferredAppKitPoint
+        )
+        return resolvedLayout.targetFrame
+    }
+
+    func smoothPreviewTargetFrame(
+        for action: WindowAction,
+        on target: DockApplicationTarget,
+        layoutEngine: WindowLayoutEngine,
+        preferredAppKitPoint: CGPoint?
+    ) throws -> CGRect {
+        let app = try runningApplication(matching: target)
+        let appElement = AXUIElementCreateApplication(app.processIdentifier)
+        let targetWindow = try preferredWindowActionTarget(in: app, appElement: appElement)
+        let resolvedLayout = try resolvedWindowActionLayout(
+            for: action,
+            application: app,
+            window: targetWindow,
+            layoutEngine: layoutEngine,
+            preferredAppKitPoint: preferredAppKitPoint
+        )
+        return resolvedLayout.targetFrame
     }
 
     private func frontmostApplication() throws -> NSRunningApplication {
@@ -1571,6 +1741,27 @@ struct WindowManager: WindowManaging {
                 "Failed to request AXFrontmost for app \(app.localizedName ?? "unknown") with error \(error.rawValue)"
             )
         }
+    }
+
+    private func smoothPreviewSession(
+        for window: AXUIElement,
+        initialAppKitFrame: CGRect
+    ) -> SmoothWindowPreviewSession {
+        SmoothWindowPreviewSession(
+            originalAppKitFrame: initialAppKitFrame,
+            loadCurrentAppKitFrame: { [window] in
+                let geometry = ScreenGeometry(screenFrames: NSScreen.screens.map(\.frame))
+                guard let currentAXFrame = self.readFrameBestEffort(of: window, context: "during smooth preview") else {
+                    return nil
+                }
+                return geometry.appKitFrame(fromAXFrame: currentAXFrame)
+            },
+            applyAppKitFrame: { [window] appKitFrame in
+                let geometry = ScreenGeometry(screenFrames: NSScreen.screens.map(\.frame))
+                let axFrame = geometry.axFrame(fromAppKitFrame: appKitFrame)
+                _ = try self.setFrame(axFrame, for: window)
+            }
+        )
     }
 
     private func setBooleanAttribute(_ attribute: CFString, value: Bool, on element: AXUIElement) throws {

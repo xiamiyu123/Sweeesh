@@ -551,6 +551,38 @@ struct DockSwipeGestureRecognizerTests {
     }
 
     @Test
+    func cornerDragTransitionUsesCurrentCornerAsReference() {
+        #expect(
+            cornerDragTransitionAction(
+                from: .topRightQuarter,
+                forTouchTranslation: CGPoint(x: 0.01, y: -0.09),
+                threshold: 0.06
+            ) == .bottomRightQuarter
+        )
+        #expect(
+            cornerDragTransitionAction(
+                from: .bottomRightQuarter,
+                forTouchTranslation: CGPoint(x: -0.08, y: 0.02),
+                threshold: 0.06
+            ) == .bottomLeftQuarter
+        )
+        #expect(
+            cornerDragTransitionAction(
+                from: .bottomLeftQuarter,
+                forTouchTranslation: CGPoint(x: 0.02, y: 0.1),
+                threshold: 0.06
+            ) == .topLeftQuarter
+        )
+        #expect(
+            cornerDragTransitionAction(
+                from: .topLeftQuarter,
+                forTouchTranslation: CGPoint(x: 0.03, y: 0.01),
+                threshold: 0.06
+            ) == .topLeftQuarter
+        )
+    }
+
+    @Test
     func titleBarCornerDragRecognizerEndsWhenTouchesLift() {
         var recognizer = TitleBarCornerDragRecognizer()
         let finder = target(dockItemName: "Finder")

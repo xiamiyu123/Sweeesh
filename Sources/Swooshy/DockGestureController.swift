@@ -46,6 +46,7 @@ final class DockGestureController {
     private var activeCornerDragAction: WindowAction?
     private var activeCornerDragAnchorPoint: CGPoint?
     private var activeCornerDragTouchOrigin: CGPoint?
+    private var activeCornerDragTouchReferencePoint: CGPoint?
     private var cornerDragPreviewCache = CornerDragPreviewCache()
     private var smoothWindowPreviewSession: SmoothWindowPreviewSession?
     private let cornerDragTranslationThreshold: CGFloat = 0.06
@@ -189,6 +190,7 @@ final class DockGestureController {
         activeCornerDragAction = nil
         activeCornerDragAnchorPoint = nil
         activeCornerDragTouchOrigin = nil
+        activeCornerDragTouchReferencePoint = nil
         cornerDragPreviewCache.clear()
         finishSmoothWindowPreview(restore: true)
         dockProbe.clearCache()
@@ -242,6 +244,7 @@ final class DockGestureController {
         activeCornerDragAction = nil
         activeCornerDragAnchorPoint = nil
         activeCornerDragTouchOrigin = nil
+        activeCornerDragTouchReferencePoint = nil
         cornerDragPreviewCache.clear()
         finishSmoothWindowPreview(restore: true)
         dockProbe.clearCache()
@@ -523,6 +526,7 @@ final class DockGestureController {
             activeCornerDragAction = nil
             activeCornerDragAnchorPoint = anchorPoint
             activeCornerDragTouchOrigin = startAveragePoint
+            activeCornerDragTouchReferencePoint = startAveragePoint
             cornerDragPreviewCache.clear()
             installEscMonitor()
             updateCornerDragFeedback(
@@ -812,7 +816,7 @@ final class DockGestureController {
             let application = activeCornerDragApplication,
             let source = activeCornerDragSource,
             let anchorPoint = activeCornerDragAnchorPoint,
-            let touchOrigin = activeCornerDragTouchOrigin
+            let touchOrigin = activeCornerDragTouchReferencePoint ?? activeCornerDragTouchOrigin
         else {
             return
         }
@@ -821,12 +825,32 @@ final class DockGestureController {
             x: currentTouchPoint.x - touchOrigin.x,
             y: currentTouchPoint.y - touchOrigin.y
         )
-        let nextAction = cornerDragAction(
-            forTouchTranslation: translation,
-            threshold: cornerDragTranslationThreshold
-        )
         let previousAction = activeCornerDragAction
+        let useRelativeCornerDrag = settingsStore.smoothWindowPreviewEnabled
+        let nextAction: WindowAction?
+
+        if useRelativeCornerDrag, let previousAction {
+            nextAction = cornerDragTransitionAction(
+                from: previousAction,
+                forTouchTranslation: translation,
+                threshold: cornerDragTranslationThreshold
+            )
+        } else {
+            nextAction = cornerDragAction(
+                forTouchTranslation: translation,
+                threshold: cornerDragTranslationThreshold
+            )
+        }
+
         activeCornerDragAction = nextAction
+
+        if useRelativeCornerDrag {
+            if let nextAction, nextAction != previousAction {
+                activeCornerDragTouchReferencePoint = currentTouchPoint
+            } else if previousAction == nil, nextAction == nil {
+                activeCornerDragTouchReferencePoint = activeCornerDragTouchOrigin
+            }
+        }
 
         if let nextAction {
             pendingReleaseAction = .cornerDrag(
@@ -915,6 +939,7 @@ final class DockGestureController {
         activeCornerDragAction = nil
         activeCornerDragAnchorPoint = nil
         activeCornerDragTouchOrigin = nil
+        activeCornerDragTouchReferencePoint = nil
         cornerDragPreviewCache.clear()
         finishSmoothWindowPreview(restore: dismissFeedback)
         if dismissFeedback {
@@ -1628,6 +1653,60 @@ func cornerDragAction(
     }
 
     return nil
+}
+
+func cornerDragTransitionAction(
+    from currentAction: WindowAction,
+    forTouchTranslation translation: CGPoint,
+    threshold: CGFloat
+) -> WindowAction {
+    guard abs(translation.x) >= threshold || abs(translation.y) >= threshold else {
+        return currentAction
+    }
+
+    let horizontalDominates = abs(translation.x) >= abs(translation.y)
+
+    if horizontalDominates {
+        if translation.x > 0 {
+            switch currentAction {
+            case .topLeftQuarter:
+                return .topRightQuarter
+            case .bottomLeftQuarter:
+                return .bottomRightQuarter
+            default:
+                return currentAction
+            }
+        } else {
+            switch currentAction {
+            case .topRightQuarter:
+                return .topLeftQuarter
+            case .bottomRightQuarter:
+                return .bottomLeftQuarter
+            default:
+                return currentAction
+            }
+        }
+    }
+
+    if translation.y > 0 {
+        switch currentAction {
+        case .bottomLeftQuarter:
+            return .topLeftQuarter
+        case .bottomRightQuarter:
+            return .topRightQuarter
+        default:
+            return currentAction
+        }
+    }
+
+    switch currentAction {
+    case .topLeftQuarter:
+        return .bottomLeftQuarter
+    case .topRightQuarter:
+        return .bottomRightQuarter
+    default:
+        return currentAction
+    }
 }
 
 enum TitleBarHoverSource: Equatable {

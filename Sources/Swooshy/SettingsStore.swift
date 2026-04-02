@@ -739,9 +739,7 @@ final class SettingsStore {
         static let gestureHUDStyle = "settings.gestureHUDStyle"
         static let statusItemIcon = "settings.statusItemIcon"
         static let hasSeenWelcomeGuide = "settings.hasSeenWelcomeGuide"
-        #if DEBUG
         static let debugLoggingEnabled = "settings.debugLoggingEnabled"
-        #endif
         static let hotKeyBindings = "settings.hotKeyBindings"
         static let dockGestureBindings = "settings.dockGestureBindings"
         static let titleBarGestureBindings = "settings.titleBarGestureBindings"

@@ -40,7 +40,7 @@ enum DebugLog {
     }
 
     static var logFilePathDescription: String {
-        fileSink.logFileURL.path
+        fileSink.currentLogFileURL.path
     }
 
     private static var isEnabled: Bool {
@@ -58,16 +58,29 @@ enum DebugLog {
     }
 }
 
-private actor DebugLogFileSink {
-    let logFileURL: URL
+actor DebugLogFileSink {
+    private let fileManager = FileManager.default
+    let logDirectoryURL: URL
+    let currentLogFileURL: URL
     private let timestampFormatter = ISO8601DateFormatter()
+    private let archiveNameFormatter: DateFormatter
+    private let maximumLogFileSize: Int64 = 5 * 1024 * 1024
+    private let maximumArchivedLogCount = 10
+    private let archivedLogRetentionInterval: TimeInterval = 7 * 24 * 60 * 60
+    private let maintenanceInterval: TimeInterval = 24 * 60 * 60
     private var fileHandle: FileHandle?
+    private var lastMaintenanceDate: Date?
 
-    init() {
-        let logsDirectory = FileManager.default
-            .homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Logs/Swooshy", isDirectory: true)
-        self.logFileURL = logsDirectory.appendingPathComponent("debug.log")
+    init(logDirectoryURL: URL = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/Logs/Swooshy", isDirectory: true)) {
+        self.logDirectoryURL = logDirectoryURL
+        self.currentLogFileURL = logDirectoryURL.appendingPathComponent("debug.log")
+
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        self.archiveNameFormatter = formatter
     }
 
     deinit {
@@ -81,6 +94,8 @@ private actor DebugLogFileSink {
     func append(level: String, channel: String, message: String) {
         do {
             let line = "\(timestampFormatter.string(from: Date())) [\(level)] [\(channel)] \(message)\n"
+            try performMaintenanceIfNeeded()
+            try rotateCurrentLogIfNeeded(projectedAdditionalBytes: Int64(line.utf8.count))
             let handle = try logFileHandle()
             try handle.seekToEnd()
             try handle.write(contentsOf: Data(line.utf8))
@@ -89,30 +104,150 @@ private actor DebugLogFileSink {
         }
     }
 
+    private func performMaintenanceIfNeeded() throws {
+        let now = Date()
+
+        if let lastMaintenanceDate, now.timeIntervalSince(lastMaintenanceDate) < maintenanceInterval {
+            return
+        }
+
+        try ensureLogDirectoryExists()
+        try pruneArchivedLogs(now: now)
+        lastMaintenanceDate = now
+    }
+
+    private func ensureLogDirectoryExists() throws {
+        try fileManager.createDirectory(
+            at: logDirectoryURL,
+            withIntermediateDirectories: true
+        )
+    }
+
+    private func rotateCurrentLogIfNeeded(projectedAdditionalBytes: Int64) throws {
+        guard let currentFileSize = currentLogFileSize() else {
+            return
+        }
+
+        guard currentFileSize + projectedAdditionalBytes > maximumLogFileSize else {
+            return
+        }
+
+        try closeCurrentFileHandle()
+
+        guard fileManager.fileExists(atPath: currentLogFileURL.path) else {
+            return
+        }
+
+        let rotatedLogURL = try uniqueArchivedLogURL()
+        try fileManager.moveItem(at: currentLogFileURL, to: rotatedLogURL)
+    }
+
+    private func pruneArchivedLogs(now: Date) throws {
+        let archiveURLs = archivedLogURLs()
+        let expiredCutoff = now.addingTimeInterval(-archivedLogRetentionInterval)
+
+        var retainedArchiveURLs: [(url: URL, date: Date)] = []
+
+        for archiveURL in archiveURLs {
+            if let modificationDate = modificationDate(for: archiveURL) {
+                if modificationDate < expiredCutoff {
+                    try fileManager.removeItem(at: archiveURL)
+                    continue
+                }
+
+                retainedArchiveURLs.append((archiveURL, modificationDate))
+            } else {
+                retainedArchiveURLs.append((archiveURL, .distantPast))
+            }
+        }
+
+        if retainedArchiveURLs.count <= maximumArchivedLogCount {
+            return
+        }
+
+        let sortedArchiveURLs = retainedArchiveURLs.sorted { lhs, rhs in
+            if lhs.date == rhs.date {
+                return lhs.url.lastPathComponent < rhs.url.lastPathComponent
+            }
+
+            return lhs.date < rhs.date
+        }
+
+        let excessArchives = sortedArchiveURLs.prefix(sortedArchiveURLs.count - maximumArchivedLogCount)
+        for archive in excessArchives {
+            try fileManager.removeItem(at: archive.url)
+        }
+    }
+
     private func logFileHandle() throws -> FileHandle {
         if let fileHandle {
             return fileHandle
         }
 
-        let directoryURL = logFileURL.deletingLastPathComponent()
-        try FileManager.default.createDirectory(
-            at: directoryURL,
-            withIntermediateDirectories: true
-        )
+        try ensureLogDirectoryExists()
 
-        if FileManager.default.fileExists(atPath: logFileURL.path) == false {
-            let created = FileManager.default.createFile(atPath: logFileURL.path, contents: nil)
+        if fileManager.fileExists(atPath: currentLogFileURL.path) == false {
+            let created = fileManager.createFile(atPath: currentLogFileURL.path, contents: nil)
             guard created else {
                 throw NSError(
                     domain: NSCocoaErrorDomain,
                     code: NSFileWriteUnknownError,
-                    userInfo: [NSFilePathErrorKey: logFileURL.path]
+                    userInfo: [NSFilePathErrorKey: currentLogFileURL.path]
                 )
             }
         }
 
-        let handle = try FileHandle(forWritingTo: logFileURL)
+        let handle = try FileHandle(forWritingTo: currentLogFileURL)
         self.fileHandle = handle
         return handle
+    }
+
+    private func closeCurrentFileHandle() throws {
+        guard let fileHandle else {
+            return
+        }
+
+        try fileHandle.close()
+        self.fileHandle = nil
+    }
+
+    private func currentLogFileSize() -> Int64? {
+        guard let attributes = try? fileManager.attributesOfItem(atPath: currentLogFileURL.path),
+              let fileSize = attributes[.size] as? NSNumber else {
+            return nil
+        }
+
+        return fileSize.int64Value
+    }
+
+    private func archivedLogURLs() -> [URL] {
+        guard let contents = try? fileManager.contentsOfDirectory(
+            at: logDirectoryURL,
+            includingPropertiesForKeys: nil
+        ) else {
+            return []
+        }
+
+        return contents.filter { url in
+            url.lastPathComponent.hasPrefix("debug-") && url.pathExtension == "log"
+        }
+    }
+
+    private func modificationDate(for url: URL) -> Date? {
+        let values = try? url.resourceValues(forKeys: [.contentModificationDateKey])
+        return values?.contentModificationDate
+    }
+
+    private func uniqueArchivedLogURL() throws -> URL {
+        let baseName = "debug-\(archiveNameFormatter.string(from: Date()))"
+        var candidateURL = logDirectoryURL.appendingPathComponent("\(baseName).log")
+        var suffix = 1
+
+        while fileManager.fileExists(atPath: candidateURL.path) {
+            candidateURL = logDirectoryURL.appendingPathComponent("\(baseName)-\(suffix).log")
+            suffix += 1
+        }
+
+        return candidateURL
     }
 }

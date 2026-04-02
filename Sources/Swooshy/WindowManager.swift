@@ -771,7 +771,12 @@ struct WindowManager: WindowManaging {
             layoutEngine: layoutEngine,
             preferredAppKitPoint: preferredAppKitPoint
         )
-        return resolvedLayout.targetFrame
+        return effectiveSmoothPreviewFrame(
+            for: action,
+            application: app,
+            targetFrame: resolvedLayout.targetFrame,
+            layoutEngine: layoutEngine
+        )
     }
 
     func smoothPreviewTargetFrame(
@@ -790,7 +795,39 @@ struct WindowManager: WindowManaging {
             layoutEngine: layoutEngine,
             preferredAppKitPoint: preferredAppKitPoint
         )
-        return resolvedLayout.targetFrame
+        return effectiveSmoothPreviewFrame(
+            for: action,
+            application: app,
+            targetFrame: resolvedLayout.targetFrame,
+            layoutEngine: layoutEngine
+        )
+    }
+
+    private func effectiveSmoothPreviewFrame(
+        for action: WindowAction,
+        application: NSRunningApplication,
+        targetFrame: CGRect,
+        layoutEngine: WindowLayoutEngine
+    ) -> CGRect {
+        guard action.supportsSnapPreview else {
+            return targetFrame
+        }
+
+        let observedObservation = observedConstraintObservation(for: application, action: action)
+        let previewFrame = layoutEngine.preview(
+            for: action,
+            targetFrame: targetFrame,
+            observation: observedObservation
+        )?.frame
+
+        if let previewFrame, previewFrame != targetFrame {
+            DebugLog.debug(
+                DebugLog.windows,
+                "Resolved smooth preview frame \(NSStringFromRect(previewFrame)) from target \(NSStringFromRect(targetFrame)) for \(application.bundleIdentifier ?? application.localizedName ?? "unknown")"
+            )
+        }
+
+        return previewFrame ?? targetFrame
     }
 
     private func frontmostApplication() throws -> NSRunningApplication {

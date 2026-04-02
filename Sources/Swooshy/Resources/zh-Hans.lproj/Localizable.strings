@@ -171,8 +171,10 @@
 "settings.advanced.sensitivity.low" = "低";
 "settings.advanced.sensitivity.high" = "高";
 "settings.advanced.section.other" = "其他";
+"settings.advanced.section.logging" = "日志";
 "settings.advanced.reset_defaults" = "恢复高级设置默认值";
 "settings.advanced.done" = "完成";
+"settings.advanced.debug_logging.footer" = "启用后，日志会写入 %@。";
 
 "settings.experimental.section" = "实验性功能";
 "settings.experimental.browser_tab_close.enabled" = "启用关闭标签页手势";

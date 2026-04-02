@@ -16,7 +16,6 @@ enum DebugLog {
     static let windows = Channel(name: "windows", logger: Logger(subsystem: subsystem, category: "windows"))
     static let accessibility = Channel(name: "accessibility", logger: Logger(subsystem: subsystem, category: "accessibility"))
 
-    #if DEBUG
     private static let fileSink = DebugLogFileSink()
 
     static func debug(_ channel: Channel, _ message: @autoclosure () -> String) {
@@ -57,15 +56,8 @@ enum DebugLog {
             await fileSink.append(level: level, channel: channel.name, message: message)
         }
     }
-    #else
-    static func debug(_ channel: Channel, _ message: @autoclosure () -> String) {}
-    static func info(_ channel: Channel, _ message: @autoclosure () -> String) {}
-    static func error(_ channel: Channel, _ message: @autoclosure () -> String) {}
-    static var logFilePathDescription: String { "" }
-    #endif
 }
 
-#if DEBUG
 private actor DebugLogFileSink {
     let logFileURL: URL
     private let timestampFormatter = ISO8601DateFormatter()
@@ -124,4 +116,3 @@ private actor DebugLogFileSink {
         return handle
     }
 }
-#endif

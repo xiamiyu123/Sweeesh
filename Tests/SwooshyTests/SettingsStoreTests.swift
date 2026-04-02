@@ -47,6 +47,20 @@ struct SettingsStoreTests {
     }
 
     @Test
+    func persistsDebugLoggingPreference() {
+        let suiteName = "Swooshy.SettingsStoreTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+
+        let store = SettingsStore(userDefaults: defaults)
+        store.debugLoggingEnabled = true
+
+        let reloadedStore = SettingsStore(userDefaults: defaults)
+
+        #expect(reloadedStore.debugLoggingEnabled == true)
+    }
+
+    @Test
     func persistsCustomHotKeyBinding() {
         let suiteName = "Swooshy.SettingsStoreTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
@@ -130,6 +144,7 @@ struct SettingsStoreTests {
         store.titleBarTriggerHeight = 40
         store.titleBarCornerDragHoldDuration = 1.2
         store.statusItemIcon = .windowGrid
+        store.debugLoggingEnabled = true
         _ = store.consumeWelcomeGuidePresentationFlag()
         store.updateDockGestureAction(.closeWindow, for: .pinchIn)
 
@@ -147,6 +162,7 @@ struct SettingsStoreTests {
         #expect(reloadedStore.titleBarTriggerHeight == SettingsStore.defaultTitleBarTriggerHeight)
         #expect(reloadedStore.titleBarCornerDragHoldDuration == SettingsStore.defaultTitleBarCornerDragHoldDuration)
         #expect(reloadedStore.statusItemIcon == .gale)
+        #expect(reloadedStore.debugLoggingEnabled == false)
         #expect(reloadedStore.hasSeenWelcomeGuide == false)
         #expect(reloadedStore.dockGestureAction(for: .pinchIn) == .quitApplication)
     }

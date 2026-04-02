@@ -262,6 +262,7 @@ open and hackable alternative.
 ## Development Notes
 
 - `swift test`: run the test suite
+- In the app, open `Settings…` > `Advanced Settings…` > `Logging` to enable debug logs
 - `SWOOSHY_DEBUG_LOGS=1 swift run`: force-enable debug logs at launch
 - `swift run Swooshy --reset-user-config`: clear user config before launch
 - `open /Applications/Swooshy.app --args --reset-user-config`: clear config and

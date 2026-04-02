@@ -171,8 +171,10 @@
 "settings.advanced.sensitivity.low" = "Low";
 "settings.advanced.sensitivity.high" = "High";
 "settings.advanced.section.other" = "Other";
+"settings.advanced.section.logging" = "Logging";
 "settings.advanced.reset_defaults" = "Reset Advanced Settings";
 "settings.advanced.done" = "Done";
+"settings.advanced.debug_logging.footer" = "When enabled, logs are written to %@.";
 
 "settings.experimental.section" = "Experimental";
 "settings.experimental.browser_tab_close.enabled" = "Enable tab close gesture";

@@ -111,13 +111,6 @@ private struct SettingsView: View {
                     }
                 }
                 .pickerStyle(.menu)
-
-                #if DEBUG
-                Toggle(
-                    settingsStore.localized("settings.debug_logging.enabled"),
-                    isOn: $settingsStore.debugLoggingEnabled
-                )
-                #endif
             } header: {
                 Text(settingsStore.localized("settings.section.general"))
             }
@@ -362,6 +355,26 @@ private struct AdvancedSettingsSheet: View {
                     }
                 } header: {
                     Text(settingsStore.localized("settings.advanced.section.other"))
+                }
+
+                Section {
+                    Toggle(
+                        settingsStore.localized("settings.debug_logging.enabled"),
+                        isOn: $settingsStore.debugLoggingEnabled
+                    )
+
+                    if settingsStore.debugLoggingEnabled {
+                        SettingsHintGroup {
+                            Text(
+                                String(
+                                    format: settingsStore.localized("settings.advanced.debug_logging.footer"),
+                                    DebugLog.logFilePathDescription
+                                )
+                            )
+                        }
+                    }
+                } header: {
+                    Text(settingsStore.localized("settings.advanced.section.logging"))
                 }
 
                 Section {

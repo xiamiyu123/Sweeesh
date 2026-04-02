@@ -229,7 +229,6 @@ final class SettingsStore {
         }
     }
 
-    #if DEBUG
     var debugLoggingEnabled: Bool {
         didSet {
             guard oldValue != debugLoggingEnabled else { return }
@@ -238,7 +237,6 @@ final class SettingsStore {
             notifyDidChange()
         }
     }
-    #endif
 
     var hotKeyBindings: [HotKeyBinding] {
         didSet {
@@ -372,13 +370,11 @@ final class SettingsStore {
             defaultValue: false,
             in: userDefaults
         )
-        #if DEBUG
         self.debugLoggingEnabled = Self.boolValue(
             forKey: Keys.debugLoggingEnabled,
             defaultValue: false,
             in: userDefaults
         )
-        #endif
         self.hotKeyBindings = Self.decodeHotKeyBindings(from: userDefaults) ?? HotKeyBindings.defaults
         self.dockGestureBindings = Self.decodeDockGestureBindings(from: userDefaults) ?? DockGestureBindings.defaults
         self.titleBarGestureBindings = Self.decodeTitleBarGestureBindings(from: userDefaults) ?? TitleBarGestureBindings.defaults
@@ -387,7 +383,7 @@ final class SettingsStore {
     }
 
     static func resetPersistedConfiguration(in userDefaults: UserDefaults = .standard) {
-        var keysToReset = [
+        let keysToReset = [
             Keys.languageOverride,
             Keys.hotKeysEnabled,
             Keys.dockGesturesEnabled,
@@ -405,6 +401,7 @@ final class SettingsStore {
             Keys.titleBarCornerDragHoldDuration,
             Keys.gestureHUDStyle,
             Keys.statusItemIcon,
+            Keys.debugLoggingEnabled,
             Keys.hotKeyBindings,
             Keys.dockGestureBindings,
             Keys.titleBarGestureBindings,
@@ -414,10 +411,6 @@ final class SettingsStore {
         // Intentionally preserve `experimentalBrowserTabCloseEnabled` here.
         // `--reset-user-config` is meant to restore everyday preferences while
         // keeping the user's explicit experimental opt-in state across launches.
-
-        #if DEBUG
-        keysToReset.append(Keys.debugLoggingEnabled)
-        #endif
 
         for key in keysToReset {
             userDefaults.removeObject(forKey: key)

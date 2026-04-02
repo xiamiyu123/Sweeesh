@@ -116,10 +116,16 @@ final class StatusBarController: NSObject, NSMenuDelegate {
             forName: .settingsDidChange,
             object: settingsStore,
             queue: .main
-        ) { [weak self] _ in
+        ) { [weak self] notification in
+            let categories = notification.settingsChangeCategories
             MainActor.assumeIsolated {
-                self?.updateStatusItemAppearance()
-                self?.rebuildMenu()
+                if categories.intersection([.localization, .statusItemAppearance]).isEmpty == false {
+                    self?.updateStatusItemAppearance()
+                }
+
+                if categories.intersection([.localization, .statusMenu]).isEmpty == false {
+                    self?.rebuildMenu()
+                }
             }
         }
     }

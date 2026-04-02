@@ -68,8 +68,13 @@ final class GlobalHotKeyController {
             forName: .settingsDidChange,
             object: settingsStore,
             queue: .main
-        ) { [weak self] _ in
+        ) { [weak self] notification in
+            let categories = notification.settingsChangeCategories
             MainActor.assumeIsolated {
+                guard categories.contains(.hotKeys) else {
+                    return
+                }
+
                 self?.syncRegisteredHotKeys()
             }
         }

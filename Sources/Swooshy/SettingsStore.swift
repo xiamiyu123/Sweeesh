@@ -1,8 +1,30 @@
 import Foundation
 import Observation
 
+struct SettingsChangeCategory: OptionSet {
+    let rawValue: Int
+
+    static let localization = SettingsChangeCategory(rawValue: 1 << 0)
+    static let hotKeys = SettingsChangeCategory(rawValue: 1 << 1)
+    static let gestureMonitoring = SettingsChangeCategory(rawValue: 1 << 2)
+    static let statusItemAppearance = SettingsChangeCategory(rawValue: 1 << 3)
+    static let statusMenu = SettingsChangeCategory(rawValue: 1 << 4)
+    static let gestureHUD = SettingsChangeCategory(rawValue: 1 << 5)
+    static let advancedGestureBehavior = SettingsChangeCategory(rawValue: 1 << 6)
+}
+
 extension Notification.Name {
     static let settingsDidChange = Notification.Name("Swooshy.settingsDidChange")
+}
+
+extension Notification {
+    fileprivate static let settingsChangeCategoriesUserInfoKey = "settingsChangeCategories"
+
+    var settingsChangeCategories: SettingsChangeCategory {
+        SettingsChangeCategory(
+            rawValue: userInfo?[Self.settingsChangeCategoriesUserInfoKey] as? Int ?? 0
+        )
+    }
 }
 
 @MainActor
@@ -12,13 +34,15 @@ final class SettingsStore {
     private let userDefaults: UserDefaults
     @ObservationIgnored
     private var notificationDispatchPending = false
+    @ObservationIgnored
+    private var pendingChangeCategories: SettingsChangeCategory = []
 
     var languageOverride: AppLanguage {
         didSet {
             guard oldValue != languageOverride else { return }
             userDefaults.set(languageOverride.rawValue, forKey: Keys.languageOverride)
             L10n.setPreferredLanguagesOverride(preferredLanguages)
-            notifyDidChange()
+            notifyDidChange(.localization)
         }
     }
 
@@ -26,7 +50,7 @@ final class SettingsStore {
         didSet {
             guard oldValue != hotKeysEnabled else { return }
             userDefaults.set(hotKeysEnabled, forKey: Keys.hotKeysEnabled)
-            notifyDidChange()
+            notifyDidChange(.hotKeys)
         }
     }
 
@@ -35,7 +59,7 @@ final class SettingsStore {
             guard oldValue != dockGesturesEnabled else { return }
             userDefaults.set(dockGesturesEnabled, forKey: Keys.dockGesturesEnabled)
             DebugLog.info(DebugLog.settings, "Dock gestures enabled set to \(dockGesturesEnabled)")
-            notifyDidChange()
+            notifyDidChange(.gestureMonitoring)
         }
     }
 
@@ -44,7 +68,7 @@ final class SettingsStore {
             guard oldValue != titleBarGesturesEnabled else { return }
             userDefaults.set(titleBarGesturesEnabled, forKey: Keys.titleBarGesturesEnabled)
             DebugLog.info(DebugLog.settings, "Title-bar gestures enabled set to \(titleBarGesturesEnabled)")
-            notifyDidChange()
+            notifyDidChange(.gestureMonitoring)
         }
     }
 
@@ -53,7 +77,7 @@ final class SettingsStore {
             guard oldValue != dockCornerDragSnapEnabled else { return }
             userDefaults.set(dockCornerDragSnapEnabled, forKey: Keys.dockCornerDragSnapEnabled)
             DebugLog.info(DebugLog.settings, "Dock corner drag snap enabled set to \(dockCornerDragSnapEnabled)")
-            notifyDidChange()
+            notifyDidChange([.gestureMonitoring, .advancedGestureBehavior])
         }
     }
 
@@ -62,7 +86,7 @@ final class SettingsStore {
             guard oldValue != titleBarCornerDragSnapEnabled else { return }
             userDefaults.set(titleBarCornerDragSnapEnabled, forKey: Keys.titleBarCornerDragSnapEnabled)
             DebugLog.info(DebugLog.settings, "Title-bar corner drag snap enabled set to \(titleBarCornerDragSnapEnabled)")
-            notifyDidChange()
+            notifyDidChange([.gestureMonitoring, .advancedGestureBehavior])
         }
     }
 
@@ -74,7 +98,7 @@ final class SettingsStore {
                 DebugLog.settings,
                 "Title-bar overlay protection enabled set to \(titleBarOverlayProtectionEnabled)"
             )
-            notifyDidChange()
+            notifyDidChange(.advancedGestureBehavior)
         }
     }
 
@@ -86,7 +110,7 @@ final class SettingsStore {
                 DebugLog.settings,
                 "Smart pinch out of Full Screen enabled set to \(smartPinchExitFullScreenEnabled)"
             )
-            notifyDidChange()
+            notifyDidChange(.advancedGestureBehavior)
         }
     }
 
@@ -98,7 +122,7 @@ final class SettingsStore {
                 DebugLog.settings,
                 "Smart browser tab close enabled set to \(smartBrowserTabCloseEnabled)"
             )
-            notifyDidChange()
+            notifyDidChange(.advancedGestureBehavior)
         }
     }
 
@@ -113,7 +137,7 @@ final class SettingsStore {
                 DebugLog.settings,
                 "Experimental browser tab close enabled set to \(experimentalBrowserTabCloseEnabled)"
             )
-            notifyDidChange()
+            notifyDidChange(.advancedGestureBehavior)
         }
     }
 
@@ -122,7 +146,7 @@ final class SettingsStore {
             guard oldValue != executeGestureOnRelease else { return }
             userDefaults.set(executeGestureOnRelease, forKey: Keys.executeGestureOnRelease)
             DebugLog.info(DebugLog.settings, "Execute gesture on release set to \(executeGestureOnRelease)")
-            notifyDidChange()
+            notifyDidChange(.advancedGestureBehavior)
         }
     }
 
@@ -131,7 +155,7 @@ final class SettingsStore {
             guard oldValue != smoothWindowPreviewEnabled else { return }
             userDefaults.set(smoothWindowPreviewEnabled, forKey: Keys.smoothWindowPreviewEnabled)
             DebugLog.info(DebugLog.settings, "Smooth window preview enabled set to \(smoothWindowPreviewEnabled)")
-            notifyDidChange()
+            notifyDidChange(.advancedGestureBehavior)
         }
     }
 
@@ -140,7 +164,7 @@ final class SettingsStore {
             guard oldValue != reverseCancelEnabled else { return }
             userDefaults.set(reverseCancelEnabled, forKey: Keys.reverseCancelEnabled)
             DebugLog.info(DebugLog.settings, "Reverse cancel enabled set to \(reverseCancelEnabled)")
-            notifyDidChange()
+            notifyDidChange(.advancedGestureBehavior)
         }
     }
 
@@ -149,7 +173,7 @@ final class SettingsStore {
             guard oldValue != reverseCancelSensitivity else { return }
             userDefaults.set(reverseCancelSensitivity, forKey: Keys.reverseCancelSensitivity)
             DebugLog.info(DebugLog.settings, "Reverse cancel sensitivity set to \(reverseCancelSensitivity)")
-            notifyDidChange()
+            notifyDidChange([.gestureMonitoring, .advancedGestureBehavior])
         }
     }
 
@@ -158,7 +182,7 @@ final class SettingsStore {
             guard oldValue != swipeSensitivity else { return }
             userDefaults.set(swipeSensitivity, forKey: Keys.swipeSensitivity)
             DebugLog.info(DebugLog.settings, "Swipe sensitivity set to \(swipeSensitivity)")
-            notifyDidChange()
+            notifyDidChange([.gestureMonitoring, .advancedGestureBehavior])
         }
     }
 
@@ -167,7 +191,7 @@ final class SettingsStore {
             guard oldValue != pinchSensitivity else { return }
             userDefaults.set(pinchSensitivity, forKey: Keys.pinchSensitivity)
             DebugLog.info(DebugLog.settings, "Pinch sensitivity set to \(pinchSensitivity)")
-            notifyDidChange()
+            notifyDidChange([.gestureMonitoring, .advancedGestureBehavior])
         }
     }
 
@@ -188,7 +212,7 @@ final class SettingsStore {
 
             userDefaults.set(clampedValue, forKey: Keys.titleBarTriggerHeight)
             DebugLog.info(DebugLog.settings, "Title-bar trigger height set to \(clampedValue)")
-            notifyDidChange()
+            notifyDidChange([.gestureMonitoring, .advancedGestureBehavior])
         }
     }
 
@@ -209,7 +233,7 @@ final class SettingsStore {
 
             userDefaults.set(clampedValue, forKey: Keys.titleBarCornerDragHoldDuration)
             DebugLog.info(DebugLog.settings, "Title-bar corner drag hold duration set to \(clampedValue)")
-            notifyDidChange()
+            notifyDidChange([.gestureMonitoring, .advancedGestureBehavior])
         }
     }
 
@@ -218,7 +242,7 @@ final class SettingsStore {
             guard oldValue != gestureHUDStyle else { return }
             userDefaults.set(gestureHUDStyle.storageValue, forKey: Keys.gestureHUDStyle)
             DebugLog.info(DebugLog.settings, "Gesture HUD style set to \(gestureHUDStyle.storageValue)")
-            notifyDidChange()
+            notifyDidChange(.gestureHUD)
         }
     }
 
@@ -227,7 +251,7 @@ final class SettingsStore {
             guard oldValue != statusItemIcon else { return }
             userDefaults.set(statusItemIcon.storageValue, forKey: Keys.statusItemIcon)
             DebugLog.info(DebugLog.settings, "Status item icon set to \(statusItemIcon.storageValue)")
-            notifyDidChange()
+            notifyDidChange([.statusItemAppearance, .statusMenu])
         }
     }
 
@@ -239,7 +263,7 @@ final class SettingsStore {
                 DebugLog.settings,
                 "Collapse status-item window actions set to \(collapseStatusItemWindowActions)"
             )
-            notifyDidChange()
+            notifyDidChange(.statusMenu)
         }
     }
 
@@ -264,7 +288,7 @@ final class SettingsStore {
             guard oldValue != hotKeyBindings else { return }
             persistHotKeyBindings()
             DebugLog.debug(DebugLog.settings, "Persisted \(hotKeyBindings.count) hot key bindings")
-            notifyDidChange()
+            notifyDidChange(.hotKeys)
         }
     }
 
@@ -273,7 +297,7 @@ final class SettingsStore {
             guard oldValue != dockGestureBindings else { return }
             persistDockGestureBindings()
             DebugLog.debug(DebugLog.settings, "Persisted \(dockGestureBindings.count) Dock gesture bindings")
-            notifyDidChange()
+            notifyDidChange([.gestureMonitoring, .gestureHUD])
         }
     }
 
@@ -282,7 +306,7 @@ final class SettingsStore {
             guard oldValue != titleBarGestureBindings else { return }
             persistTitleBarGestureBindings()
             DebugLog.debug(DebugLog.settings, "Persisted \(titleBarGestureBindings.count) title-bar gesture bindings")
-            notifyDidChange()
+            notifyDidChange([.gestureMonitoring, .gestureHUD])
         }
     }
 
@@ -618,7 +642,9 @@ final class SettingsStore {
         }
     }
 
-    private func notifyDidChange() {
+    private func notifyDidChange(_ categories: SettingsChangeCategory = []) {
+        pendingChangeCategories.formUnion(categories)
+
         guard notificationDispatchPending == false else {
             return
         }
@@ -630,7 +656,13 @@ final class SettingsStore {
             }
 
             self.notificationDispatchPending = false
-            NotificationCenter.default.post(name: .settingsDidChange, object: self)
+            let categories = self.pendingChangeCategories
+            self.pendingChangeCategories = []
+            NotificationCenter.default.post(
+                name: .settingsDidChange,
+                object: self,
+                userInfo: [Notification.settingsChangeCategoriesUserInfoKey: categories.rawValue]
+            )
         }
     }
 

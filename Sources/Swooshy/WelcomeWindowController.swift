@@ -46,9 +46,13 @@ final class WelcomeWindowController: NSWindowController, NSWindowDelegate {
             forName: .settingsDidChange,
             object: settingsStore,
             queue: .main
-        ) { [weak self] _ in
+        ) { [weak self] notification in
+            let categories = notification.settingsChangeCategories
             MainActor.assumeIsolated {
                 guard let self else { return }
+                guard categories.contains(.localization) else {
+                    return
+                }
                 self.reloadLocalizedContent(preservingPageIndex: self.viewModel.currentPageIndex)
             }
         }

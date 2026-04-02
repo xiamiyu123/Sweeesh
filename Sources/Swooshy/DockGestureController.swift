@@ -206,8 +206,13 @@ final class DockGestureController {
             forName: .settingsDidChange,
             object: settingsStore,
             queue: .main
-        ) { [weak self] _ in
+        ) { [weak self] notification in
+            let categories = notification.settingsChangeCategories
             MainActor.assumeIsolated {
+                guard categories.intersection([.gestureMonitoring, .advancedGestureBehavior]).isEmpty == false else {
+                    return
+                }
+
                 self?.dockProbe.clearCache()
                 self?.titleBarProbe.clearCache()
                 self?.syncMonitoring()

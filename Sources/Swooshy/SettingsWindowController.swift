@@ -854,6 +854,14 @@ private final class ShortcutRecorderControl: NSControl {
         true
     }
 
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateAppearance()
+        updateDisplay()
+        needsDisplay = true
+        label.needsDisplay = true
+    }
+
     override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
         isRecording = true

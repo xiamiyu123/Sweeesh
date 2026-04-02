@@ -2264,15 +2264,26 @@ private final class DockAccessibilityProbe {
             return nil
         }
 
+        if let exactAliasMatch = applicationRecords.first(where: { record in
+            record.normalizedAliases.contains(normalizedDockName)
+        }) {
+            return exactAliasMatch
+        }
+
         var bestRecord: ApplicationRecord?
         var bestCombinedScore = Int.min
+        var minimizedWindowTitleCache: [pid_t: [String]] = [:]
 
         for record in applicationRecords {
-            let aliasScore = appMatchScore(
+            let matchScore = DockItemApplicationMatcher.matchScore(
                 forNormalizedDockName: normalizedDockName,
-                normalizedAliases: record.normalizedAliases
+                normalizedAliases: record.normalizedAliases,
+                normalizedMinimizedWindowTitles: normalizedMinimizedWindowTitles(
+                    for: record.application,
+                    cache: &minimizedWindowTitleCache
+                )
             )
-            guard aliasScore > 0 else {
+            guard matchScore > 0 else {
                 continue
             }
 
@@ -2280,7 +2291,7 @@ private final class DockAccessibilityProbe {
                 for: record.application,
                 qualityScoreCache: &qualityScoreCache
             )
-            let combinedScore = (aliasScore * 1_000) + qualityScore
+            let combinedScore = (matchScore * 1_000) + qualityScore
 
             if combinedScore > bestCombinedScore {
                 bestCombinedScore = combinedScore
@@ -2299,6 +2310,26 @@ private final class DockAccessibilityProbe {
         }
 
         return bestRecord
+    }
+
+    private func normalizedMinimizedWindowTitles(
+        for application: NSRunningApplication,
+        cache: inout [pid_t: [String]]
+    ) -> [String] {
+        if let cachedTitles = cache[application.processIdentifier] {
+            return cachedTitles
+        }
+
+        let appElement = AXUIElementCreateApplication(application.processIdentifier)
+        let titles = AXAttributeReader
+            .elements(kAXWindowsAttribute as CFString, from: appElement)
+            .filter { AXAttributeReader.bool(kAXMinimizedAttribute as CFString, from: $0) == true }
+            .compactMap { AXAttributeReader.string(kAXTitleAttribute as CFString, from: $0) }
+            .map(RunningApplicationIdentity.normalizedAlias)
+            .filter { $0.isEmpty == false }
+
+        cache[application.processIdentifier] = titles
+        return titles
     }
 
     private func runningApplicationRecords() -> [ApplicationRecord] {
@@ -2380,19 +2411,6 @@ private final class DockAccessibilityProbe {
 #endif
     }
 
-    private func appMatchScore(forNormalizedDockName normalizedDockName: String, normalizedAliases: [String]) -> Int {
-        var bestScore = 0
-        for normalizedAlias in normalizedAliases {
-            if normalizedAlias == normalizedDockName {
-                bestScore = max(bestScore, 3)
-            } else if normalizedAlias.contains(normalizedDockName) || normalizedDockName.contains(normalizedAlias) {
-                bestScore = max(bestScore, 2)
-            }
-        }
-
-        return bestScore
-    }
-
     private func childElements(attribute: CFString, from element: AXUIElement) -> [AXUIElement] {
         var value: CFTypeRef?
         let error = AXUIElementCopyAttributeValue(element, attribute, &value)
@@ -2463,6 +2481,34 @@ private final class DockAccessibilityProbe {
         let dx = max(frame.minX - point.x, 0, point.x - frame.maxX)
         let dy = max(frame.minY - point.y, 0, point.y - frame.maxY)
         return sqrt((dx * dx) + (dy * dy))
+    }
+}
+
+enum DockItemApplicationMatcher {
+    static func matchScore(
+        forNormalizedDockName normalizedDockName: String,
+        normalizedAliases: [String],
+        normalizedMinimizedWindowTitles: [String]
+    ) -> Int {
+        guard normalizedDockName.isEmpty == false else {
+            return 0
+        }
+
+        if normalizedAliases.contains(normalizedDockName) {
+            return 4
+        }
+
+        if normalizedMinimizedWindowTitles.contains(normalizedDockName) {
+            return 3
+        }
+
+        for normalizedTitle in normalizedMinimizedWindowTitles {
+            if normalizedTitle.hasPrefix(normalizedDockName) || normalizedTitle.hasSuffix(normalizedDockName) {
+                return 2
+            }
+        }
+
+        return 0
     }
 }
 

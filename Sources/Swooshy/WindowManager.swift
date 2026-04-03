@@ -358,7 +358,7 @@ final class SmoothWindowPreviewSession {
     private let loadCurrentAppKitFrame: () -> CGRect?
     private let applyAppKitFrame: (CGRect) throws -> Void
     private var animationTask: Task<Void, Never>?
-    private var lastTargetFrame: CGRect?
+    private var currentTarget: CGRect?
     private var lastAppliedFrame: CGRect?
 
     init(
@@ -376,53 +376,13 @@ final class SmoothWindowPreviewSession {
     }
 
     func animate(to targetFrame: CGRect) {
-        guard lastTargetFrame != targetFrame else {
-            return
-        }
+        let clampedTarget = targetFrame.integral
+        guard currentTarget != clampedTarget else { return }
+        currentTarget = clampedTarget
 
-        animationTask?.cancel()
-        lastTargetFrame = targetFrame
-
-        let currentFrame = lastAppliedFrame ?? loadCurrentAppKitFrame() ?? originalAppKitFrame
-        let clampedTargetFrame = targetFrame.integral
-
-        guard currentFrame.integral != clampedTargetFrame else {
-            return
-        }
-
-        animationTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-            let steps = 10
-            let stepDuration: UInt64 = 12_000_000
-
-            for step in 1 ... steps {
-                if Task.isCancelled {
-                    return
-                }
-
-                let progress = CGFloat(step) / CGFloat(steps)
-                let interpolatedFrame = interpolated(
-                    from: currentFrame,
-                    to: clampedTargetFrame,
-                    progress: progress
-                )
-
-                do {
-                    try applyAppKitFrame(interpolatedFrame)
-                    self.lastAppliedFrame = interpolatedFrame
-                } catch {
-                    DebugLog.debug(
-                        DebugLog.windows,
-                        "Smooth preview move failed: \(error.localizedDescription)"
-                    )
-                    return
-                }
-
-                if step < steps {
-                    try? await Task.sleep(nanoseconds: stepDuration)
-                }
-            }
-        }
+        // If the chase loop is already running, it will pick up the new target automatically.
+        guard animationTask == nil else { return }
+        startChaseLoop()
     }
 
     func restore() {
@@ -434,14 +394,63 @@ final class SmoothWindowPreviewSession {
         animationTask = nil
     }
 
-    private func interpolated(from start: CGRect, to end: CGRect, progress: CGFloat) -> CGRect {
-        let t = 1 - pow(1 - progress, 3) // ease-out cubic
-        return CGRect(
-            x: start.minX + ((end.minX - start.minX) * t),
-            y: start.minY + ((end.minY - start.minY) * t),
-            width: start.width + ((end.width - start.width) * t),
-            height: start.height + ((end.height - start.height) * t)
-        ).integral
+    private func startChaseLoop() {
+        animationTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let stepDuration: UInt64 = 12_000_000
+            let chaseFactor: CGFloat = 0.32
+            let snapThreshold: CGFloat = 0.5
+
+            while !Task.isCancelled {
+                guard let target = self.currentTarget else { break }
+                let current = self.lastAppliedFrame
+                    ?? self.loadCurrentAppKitFrame()
+                    ?? self.originalAppKitFrame
+
+                if self.framesAreClose(current, target, threshold: snapThreshold) {
+                    if current.integral != target {
+                        do {
+                            try self.applyAppKitFrame(target)
+                            self.lastAppliedFrame = target
+                        } catch {
+                            DebugLog.debug(
+                                DebugLog.windows,
+                                "Smooth preview snap failed: \(error.localizedDescription)"
+                            )
+                        }
+                    }
+                    break
+                }
+
+                let next = CGRect(
+                    x: current.minX + (target.minX - current.minX) * chaseFactor,
+                    y: current.minY + (target.minY - current.minY) * chaseFactor,
+                    width: current.width + (target.width - current.width) * chaseFactor,
+                    height: current.height + (target.height - current.height) * chaseFactor
+                ).integral
+
+                do {
+                    try self.applyAppKitFrame(next)
+                    self.lastAppliedFrame = next
+                } catch {
+                    DebugLog.debug(
+                        DebugLog.windows,
+                        "Smooth preview move failed: \(error.localizedDescription)"
+                    )
+                    break
+                }
+
+                try? await Task.sleep(nanoseconds: stepDuration)
+            }
+            self.animationTask = nil
+        }
+    }
+
+    private func framesAreClose(_ a: CGRect, _ b: CGRect, threshold: CGFloat) -> Bool {
+        abs(a.minX - b.minX) < threshold
+            && abs(a.minY - b.minY) < threshold
+            && abs(a.width - b.width) < threshold
+            && abs(a.height - b.height) < threshold
     }
 }
 
@@ -2038,19 +2047,26 @@ struct WindowManager: WindowManaging {
         for window: AXUIElement,
         initialAppKitFrame: CGRect
     ) -> SmoothWindowPreviewSession {
-        SmoothWindowPreviewSession(
+        let geometry = ScreenGeometry(screenFrames: NSScreen.screens.map(\.frame))
+        return SmoothWindowPreviewSession(
             originalAppKitFrame: initialAppKitFrame,
             loadCurrentAppKitFrame: { [window] in
-                let geometry = ScreenGeometry(screenFrames: NSScreen.screens.map(\.frame))
                 guard let currentAXFrame = self.readFrameBestEffort(of: window, context: "during smooth preview") else {
                     return nil
                 }
                 return geometry.appKitFrame(fromAXFrame: currentAXFrame)
             },
             applyAppKitFrame: { [window] appKitFrame in
-                let geometry = ScreenGeometry(screenFrames: NSScreen.screens.map(\.frame))
                 let axFrame = geometry.axFrame(fromAppKitFrame: appKitFrame)
-                _ = try self.setFrame(axFrame, for: window)
+                var size = CGSize(width: max(1, axFrame.width), height: max(1, axFrame.height))
+                var origin = axFrame.origin
+                guard let sizeValue = AXValueCreate(.cgSize, &size),
+                      let positionValue = AXValueCreate(.cgPoint, &origin)
+                else {
+                    throw WindowManagerError.unableToSetFrame
+                }
+                AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, sizeValue)
+                AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, positionValue)
             }
         )
     }

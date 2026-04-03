@@ -2,6 +2,16 @@ import Foundation
 import Testing
 @testable import Swooshy
 
+private final class NotificationRecorder: @unchecked Sendable {
+    private(set) var count = 0
+    private(set) var categories: SettingsChangeCategory = []
+
+    func record(_ notification: Notification) {
+        count += 1
+        categories.formUnion(notification.settingsChangeCategories)
+    }
+}
+
 @MainActor
 struct SettingsStoreTests {
     @Test
@@ -325,21 +335,142 @@ struct SettingsStoreTests {
     }
 
     @Test
+    func resetPersistedConfigurationPreservesExperimentalBrowserTabCloseOptIn() {
+        let suiteName = "Swooshy.SettingsStoreTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+
+        let store = SettingsStore(userDefaults: defaults)
+        store.experimentalBrowserTabCloseEnabled = true
+        store.smartBrowserTabCloseEnabled = true
+
+        SettingsStore.resetPersistedConfiguration(in: defaults)
+        let reloadedStore = SettingsStore(userDefaults: defaults)
+
+        #expect(reloadedStore.experimentalBrowserTabCloseEnabled == true)
+        #expect(reloadedStore.smartBrowserTabCloseEnabled == false)
+    }
+
+    @Test
+    func resetAdvancedSettingsRestoresBrowserTabCloseDefaults() {
+        let suiteName = "Swooshy.SettingsStoreTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+
+        let store = SettingsStore(userDefaults: defaults)
+        store.experimentalBrowserTabCloseEnabled = true
+        store.smartBrowserTabCloseEnabled = true
+        store.titleBarOverlayProtectionEnabled = false
+        store.smartPinchExitFullScreenEnabled = false
+        store.reverseCancelEnabled = false
+        store.reverseCancelSensitivity = 0.8
+        store.swipeSensitivity = 0.2
+        store.pinchSensitivity = 0.7
+        store.titleBarTriggerHeight = 48
+        store.titleBarCornerDragHoldDuration = 1.0
+
+        store.resetAdvancedSettingsToDefaults()
+
+        #expect(store.experimentalBrowserTabCloseEnabled == false)
+        #expect(store.smartBrowserTabCloseEnabled == false)
+        #expect(store.titleBarOverlayProtectionEnabled == true)
+        #expect(store.smartPinchExitFullScreenEnabled == true)
+        #expect(store.reverseCancelEnabled == true)
+        #expect(store.reverseCancelSensitivity == 0.5)
+        #expect(store.swipeSensitivity == 0.5)
+        #expect(store.pinchSensitivity == 0.5)
+        #expect(store.titleBarTriggerHeight == SettingsStore.defaultTitleBarTriggerHeight)
+        #expect(store.titleBarCornerDragHoldDuration == SettingsStore.defaultTitleBarCornerDragHoldDuration)
+    }
+
+    @Test
+    func titleBarTriggerHeightClampsPersistedAndAssignedValues() {
+        let suiteName = "Swooshy.SettingsStoreTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        defaults.set(
+            SettingsStore.maximumTitleBarTriggerHeight + 10,
+            forKey: "settings.titleBarTriggerHeight"
+        )
+
+        let store = SettingsStore(userDefaults: defaults)
+        #expect(store.titleBarTriggerHeight == SettingsStore.maximumTitleBarTriggerHeight)
+
+        store.titleBarTriggerHeight = SettingsStore.minimumTitleBarTriggerHeight - 10
+        #expect(store.titleBarTriggerHeight == SettingsStore.minimumTitleBarTriggerHeight)
+
+        let reloadedStore = SettingsStore(userDefaults: defaults)
+        #expect(reloadedStore.titleBarTriggerHeight == SettingsStore.minimumTitleBarTriggerHeight)
+    }
+
+    @Test
+    func titleBarCornerDragHoldDurationClampsPersistedAndAssignedValues() {
+        let suiteName = "Swooshy.SettingsStoreTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+        defaults.set(
+            SettingsStore.minimumTitleBarCornerDragHoldDuration - 0.1,
+            forKey: "settings.titleBarCornerDragHoldDuration"
+        )
+
+        let store = SettingsStore(userDefaults: defaults)
+        #expect(store.titleBarCornerDragHoldDuration == SettingsStore.minimumTitleBarCornerDragHoldDuration)
+
+        store.titleBarCornerDragHoldDuration = SettingsStore.maximumTitleBarCornerDragHoldDuration + 1
+        #expect(store.titleBarCornerDragHoldDuration == SettingsStore.maximumTitleBarCornerDragHoldDuration)
+
+        let reloadedStore = SettingsStore(userDefaults: defaults)
+        #expect(reloadedStore.titleBarCornerDragHoldDuration == SettingsStore.maximumTitleBarCornerDragHoldDuration)
+    }
+
+    @Test
+    func disablingExperimentalBrowserTabCloseDisablesSmartModeAndCoalescesNotification() async {
+        let suiteName = "Swooshy.SettingsStoreTests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+
+        let store = SettingsStore(userDefaults: defaults)
+        store.experimentalBrowserTabCloseEnabled = true
+        store.smartBrowserTabCloseEnabled = true
+
+        let recorder = NotificationRecorder()
+        let token = NotificationCenter.default.addObserver(
+            forName: .settingsDidChange,
+            object: store,
+            queue: .main
+        ) { notification in
+            recorder.record(notification)
+        }
+        defer {
+            NotificationCenter.default.removeObserver(token)
+        }
+
+        store.experimentalBrowserTabCloseEnabled = false
+
+        for _ in 0 ..< 3 {
+            await Task.yield()
+        }
+
+        #expect(store.experimentalBrowserTabCloseEnabled == false)
+        #expect(store.smartBrowserTabCloseEnabled == false)
+        #expect(recorder.count == 1)
+        #expect(recorder.categories == [.advancedGestureBehavior])
+    }
+
+    @Test
     func coalescesSynchronousSettingsChangeNotifications() async {
         let suiteName = "Swooshy.SettingsStoreTests.\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suiteName)!
         defaults.removePersistentDomain(forName: suiteName)
 
         let store = SettingsStore(userDefaults: defaults)
-        var notificationCount = 0
-        var receivedCategories: SettingsChangeCategory = []
+        let recorder = NotificationRecorder()
         let token = NotificationCenter.default.addObserver(
             forName: .settingsDidChange,
             object: store,
             queue: .main
         ) { notification in
-            notificationCount += 1
-            receivedCategories.formUnion(notification.settingsChangeCategories)
+            recorder.record(notification)
         }
         defer {
             NotificationCenter.default.removeObserver(token)
@@ -353,8 +484,8 @@ struct SettingsStoreTests {
             await Task.yield()
         }
 
-        #expect(notificationCount == 1)
-        #expect(receivedCategories.contains(.hotKeys))
-        #expect(receivedCategories.contains(.gestureMonitoring))
+        #expect(recorder.count == 1)
+        #expect(recorder.categories.contains(.hotKeys))
+        #expect(recorder.categories.contains(.gestureMonitoring))
     }
 }

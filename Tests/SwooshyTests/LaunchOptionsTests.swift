@@ -96,4 +96,18 @@ struct LaunchOptionsTests {
         #expect(reloadedSettings.debugLoggingEnabled == false)
         #expect(reloadedConstraints.observation(for: "com.example.app", action: .leftHalf) == nil)
     }
+
+    @Test
+    func resetUserConfigurationPreservesExperimentalBrowserTabCloseOptIn() {
+        let defaults = makeDefaults()
+        let settingsStore = SettingsStore(userDefaults: defaults)
+        settingsStore.experimentalBrowserTabCloseEnabled = true
+        settingsStore.smartBrowserTabCloseEnabled = true
+
+        LaunchOptions(arguments: [LaunchOptions.resetUserConfigurationArgument]).apply(userDefaults: defaults)
+
+        let reloadedSettings = SettingsStore(userDefaults: defaults)
+        #expect(reloadedSettings.experimentalBrowserTabCloseEnabled == true)
+        #expect(reloadedSettings.smartBrowserTabCloseEnabled == false)
+    }
 }

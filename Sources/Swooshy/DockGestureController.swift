@@ -2073,6 +2073,7 @@ private final class DockAccessibilityProbe {
     private let logTTL: TimeInterval = 0.4
     private var cachedSnapshot: CachedSnapshot?
     private var cachedHoverHit: CachedHoverHit?
+    private var preheatTask: Task<Void, Never>?
 #if DEBUG
     private var lastProbeLogAt = Date.distantPast
     private var lastProbeLogKey = ""
@@ -2097,6 +2098,8 @@ private final class DockAccessibilityProbe {
     }
 
     func clearCache() {
+        preheatTask?.cancel()
+        preheatTask = nil
         cachedSnapshot = nil
         cachedHoverHit = nil
 #if DEBUG
@@ -2178,6 +2181,10 @@ private final class DockAccessibilityProbe {
     private func dockSnapshot(containing appKitPoint: CGPoint, at now: Date) -> DockHoverSnapshot {
         if let cachedSnapshot {
             if now < cachedSnapshot.candidateExpiresAt {
+                // 快过期时异步预热（距离过期还有 ≤0.5 秒）
+                if now >= cachedSnapshot.candidateExpiresAt.addingTimeInterval(-0.5) {
+                    startPreheatIfNeeded()
+                }
                 return cachedSnapshot.snapshot
             }
 
@@ -2185,10 +2192,17 @@ private final class DockAccessibilityProbe {
                 now < cachedSnapshot.regionExpiresAt,
                 cachedSnapshot.snapshot.containsApproximateDockRegion(appKitPoint) == false
             {
+                // 区域缓存有效，同样检查预热
+                if now >= cachedSnapshot.candidateExpiresAt.addingTimeInterval(-0.5) {
+                    startPreheatIfNeeded()
+                }
                 return cachedSnapshot.snapshot
             }
         }
 
+        // 缓存过期 → 同步重建
+        preheatTask?.cancel()
+        preheatTask = nil
         let snapshot = rebuildDockSnapshot()
         cachedSnapshot = CachedSnapshot(
             snapshot: snapshot,
@@ -2196,6 +2210,25 @@ private final class DockAccessibilityProbe {
             regionExpiresAt: now.addingTimeInterval(regionCacheTTL)
         )
         return snapshot
+    }
+
+    private func startPreheatIfNeeded() {
+        guard preheatTask == nil else { return }
+
+        preheatTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+
+            let newSnapshot = self.rebuildDockSnapshot()
+            let now = Date()
+
+            self.cachedSnapshot = CachedSnapshot(
+                snapshot: newSnapshot,
+                candidateExpiresAt: now.addingTimeInterval(self.candidateCacheTTL),
+                regionExpiresAt: now.addingTimeInterval(self.regionCacheTTL)
+            )
+
+            self.preheatTask = nil
+        }
     }
 
     private func rebuildDockSnapshot() -> DockHoverSnapshot {

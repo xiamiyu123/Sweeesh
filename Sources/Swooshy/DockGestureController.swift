@@ -1947,11 +1947,27 @@ private final class TitleBarAccessibilityProbe {
     }
 
     private func startPreheatIfNeeded(titleBarHeight: CGFloat, allowFullScreen: Bool) {
-        guard preheatTask == nil else { return }
+        guard preheatTask == nil else {
+        #if DEBUG
+            DebugLog.debug(DebugLog.windows, "TitleBar preheat skipped: task already running")
+        #endif
+            return
+        }
 
         preheatTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            guard !Task.isCancelled else { return }
+        #if DEBUG
+            let start = Date()
+            DebugLog.debug(DebugLog.windows, "TitleBar preheat started")
+            defer {
+                let elapsed = Date().timeIntervalSince(start)
+                let elapsedText = String(format: "%.3f", elapsed)
+                DebugLog.debug(
+                    DebugLog.windows,
+                    "TitleBar preheat finished in \(elapsedText)s; hasCache = \(self.cachedHitRegion != nil)"
+                )
+            }
+        #endif
 
             let mouseLocation = NSEvent.mouseLocation
 
@@ -1984,11 +2000,6 @@ private final class TitleBarAccessibilityProbe {
             let titleBarFrame = self.titleBarFrame(for: appKitWindowFrame, titleBarHeight: titleBarHeight)
             guard titleBarFrame.isEmpty == false else {
                 self.cachedHitRegion = nil
-                self.preheatTask = nil
-                return
-            }
-
-            guard !Task.isCancelled else {
                 self.preheatTask = nil
                 return
             }
@@ -2317,11 +2328,27 @@ private final class DockAccessibilityProbe {
     }
 
     private func startPreheatIfNeeded() {
-        guard preheatTask == nil else { return }
+        guard preheatTask == nil else {
+        #if DEBUG
+            DebugLog.debug(DebugLog.dock, "Dock preheat skipped: task already running")
+        #endif
+            return
+        }
 
         preheatTask = Task { @MainActor [weak self] in
             guard let self else { return }
-            guard !Task.isCancelled else { return }
+        #if DEBUG
+            let start = Date()
+            DebugLog.debug(DebugLog.dock, "Dock preheat started")
+            defer {
+                let elapsed = Date().timeIntervalSince(start)
+                let elapsedText = String(format: "%.3f", elapsed)
+                DebugLog.debug(
+                    DebugLog.dock,
+                    "Dock preheat finished in \(elapsedText)s; hasSnapshot = \(self.cachedSnapshot != nil)"
+                )
+            }
+        #endif
 
             let newSnapshot = self.rebuildDockSnapshot()
             let now = Date()

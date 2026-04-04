@@ -348,6 +348,154 @@ final class ObservedWindowConstraintStore {
 }
 
 @MainActor
+final class SmoothPreviewConstraintStore {
+    private struct ApplicationConstraints {
+        var sharedSizeBounds = WindowActionPreview.SizeBounds(
+            minimumWidth: nil,
+            maximumWidth: nil,
+            minimumHeight: nil,
+            maximumHeight: nil
+        )
+        var observationsByAction: [WindowAction: WindowActionPreview.Observation] = [:]
+        var lastUsedAt: Date
+    }
+
+    private let now: () -> Date
+    private var constraintsByApplicationKey: [String: ApplicationConstraints] = [:]
+    private let expirationInterval: TimeInterval = 7 * 24 * 60 * 60
+
+    init(now: @escaping () -> Date = Date.init) {
+        self.now = now
+    }
+
+    func observation(
+        for applicationKey: String,
+        action: WindowAction
+    ) -> WindowActionPreview.Observation? {
+        pruneExpiredConstraints()
+
+        guard var applicationConstraints = constraintsByApplicationKey[applicationKey] else {
+            return nil
+        }
+
+        applicationConstraints.lastUsedAt = now()
+        constraintsByApplicationKey[applicationKey] = applicationConstraints
+
+        if let actionObservation = applicationConstraints.observationsByAction[action] {
+            guard
+                actionObservation.sizeBounds.hasConstraints ||
+                actionObservation.horizontalAnchor != nil ||
+                actionObservation.verticalAnchor != nil
+            else {
+                return nil
+            }
+
+            return actionObservation
+        }
+
+        guard applicationConstraints.sharedSizeBounds.hasConstraints else {
+            return nil
+        }
+
+        return WindowActionPreview.Observation(
+            sizeBounds: applicationConstraints.sharedSizeBounds,
+            horizontalAnchor: nil,
+            verticalAnchor: nil
+        )
+    }
+
+    func record(
+        sizeBounds: WindowActionPreview.SizeBounds,
+        horizontalAnchor: WindowActionPreview.AxisAnchor?,
+        verticalAnchor: WindowActionPreview.AxisAnchor?,
+        action: WindowAction,
+        for applicationKey: String
+    ) {
+        pruneExpiredConstraints()
+
+        let currentDate = now()
+        var applicationConstraints = constraintsByApplicationKey[applicationKey] ?? ApplicationConstraints(
+            lastUsedAt: currentDate
+        )
+
+        if sizeBounds.hasConstraints {
+            applicationConstraints.sharedSizeBounds = merged(
+                applicationConstraints.sharedSizeBounds,
+                with: sizeBounds
+            )
+        }
+
+        if var existingObservation = applicationConstraints.observationsByAction[action] {
+            existingObservation.sizeBounds = merged(
+                existingObservation.sizeBounds,
+                with: sizeBounds
+            )
+            if let horizontalAnchor {
+                existingObservation.horizontalAnchor = horizontalAnchor
+            }
+            if let verticalAnchor {
+                existingObservation.verticalAnchor = verticalAnchor
+            }
+            applicationConstraints.observationsByAction[action] = existingObservation
+        } else {
+            applicationConstraints.observationsByAction[action] = WindowActionPreview.Observation(
+                sizeBounds: sizeBounds,
+                horizontalAnchor: horizontalAnchor,
+                verticalAnchor: verticalAnchor
+            )
+        }
+
+        applicationConstraints.lastUsedAt = currentDate
+        constraintsByApplicationKey[applicationKey] = applicationConstraints
+    }
+
+    private func pruneExpiredConstraints(referenceDate: Date? = nil) {
+        let currentDate = referenceDate ?? now()
+        let cutoffDate = currentDate.addingTimeInterval(-expirationInterval)
+        constraintsByApplicationKey = constraintsByApplicationKey.filter { _, constraints in
+            constraints.lastUsedAt >= cutoffDate
+        }
+    }
+
+    private func merged(
+        _ lhs: WindowActionPreview.SizeBounds,
+        with rhs: WindowActionPreview.SizeBounds
+    ) -> WindowActionPreview.SizeBounds {
+        WindowActionPreview.SizeBounds(
+            minimumWidth: mergeMaximum(lhs.minimumWidth, rhs.minimumWidth),
+            maximumWidth: mergeMinimum(lhs.maximumWidth, rhs.maximumWidth),
+            minimumHeight: mergeMaximum(lhs.minimumHeight, rhs.minimumHeight),
+            maximumHeight: mergeMinimum(lhs.maximumHeight, rhs.maximumHeight)
+        )
+    }
+
+    private func mergeMaximum(_ lhs: CGFloat?, _ rhs: CGFloat?) -> CGFloat? {
+        switch (lhs, rhs) {
+        case let (.some(lhs), .some(rhs)):
+            return max(lhs, rhs)
+        case let (.some(lhs), .none):
+            return lhs
+        case let (.none, .some(rhs)):
+            return rhs
+        case (.none, .none):
+            return nil
+        }
+    }
+
+    private func mergeMinimum(_ lhs: CGFloat?, _ rhs: CGFloat?) -> CGFloat? {
+        switch (lhs, rhs) {
+        case let (.some(lhs), .some(rhs)):
+            return min(lhs, rhs)
+        case let (.some(lhs), .none):
+            return lhs
+        case let (.none, .some(rhs)):
+            return rhs
+        case (.none, .none):
+            return nil
+        }
+    }
+}
+@MainActor
 protocol WindowManaging {
     func perform(_ action: WindowAction, layoutEngine: WindowLayoutEngine) throws
 }
@@ -379,7 +527,6 @@ final class SmoothWindowPreviewSession {
         guard currentTarget != clampedTarget else { return }
         currentTarget = clampedTarget
 
-        // If the chase loop is already running, it will pick up the new target automatically.
         guard animationTask == nil else { return }
         startChaseLoop()
     }
@@ -458,6 +605,7 @@ struct WindowManager: WindowManaging {
     private let windowOrdering = WindowOrdering()
     private let cycleSessions = WindowCycleSessionStore()
     private let observedWindowConstraintStore = ObservedWindowConstraintStore()
+    private let smoothWindowConstraintStore = SmoothPreviewConstraintStore()
 
     private struct ResolvedWindowActionLayout {
         let focusedWindow: AXUIElement
@@ -747,9 +895,25 @@ struct WindowManager: WindowManaging {
             layoutEngine: layoutEngine,
             preferredAppKitPoint: preferredAppKitPoint
         )
+
+        let screens = NSScreen.screens
+        let screenGeometry = resolvedLayout.screenGeometry
+        let currentAXFrame = try frame(of: focusedWindow)
+        let currentFrame = screenGeometry.appKitFrame(fromAXFrame: currentAXFrame)
+        let visibleFrames = screens.map(\.visibleFrame)
+        let visibleFrame = layoutEngine.resolvedVisibleFrame(
+            preferredPoint: preferredAppKitPoint,
+            currentWindowFrame: currentFrame,
+            screenFrames: visibleFrames
+        ) ?? visibleFrames.first ?? currentFrame
+
         return smoothPreviewSession(
             for: focusedWindow,
-            initialAppKitFrame: resolvedLayout.screenGeometry.appKitFrame(fromAXFrame: try frame(of: focusedWindow))
+            initialAppKitFrame: currentFrame,
+            visibleFrame: visibleFrame,
+            action: action,
+            application: app,
+            screenGeometry: screenGeometry
         )
     }
 
@@ -774,9 +938,25 @@ struct WindowManager: WindowManaging {
             layoutEngine: layoutEngine,
             preferredAppKitPoint: preferredAppKitPoint
         )
+
+        let screens = NSScreen.screens
+        let screenGeometry = resolvedLayout.screenGeometry
+        let currentAXFrame = try frame(of: targetWindow)
+        let currentFrame = screenGeometry.appKitFrame(fromAXFrame: currentAXFrame)
+        let visibleFrames = screens.map(\.visibleFrame)
+        let visibleFrame = layoutEngine.resolvedVisibleFrame(
+            preferredPoint: preferredAppKitPoint,
+            currentWindowFrame: currentFrame,
+            screenFrames: visibleFrames
+        ) ?? visibleFrames.first ?? currentFrame
+
         return smoothPreviewSession(
             for: targetWindow,
-            initialAppKitFrame: resolvedLayout.screenGeometry.appKitFrame(fromAXFrame: try frame(of: targetWindow))
+            initialAppKitFrame: currentFrame,
+            visibleFrame: visibleFrame,
+            action: action,
+            application: app,
+            screenGeometry: screenGeometry
         )
     }
 
@@ -792,7 +972,8 @@ struct WindowManager: WindowManaging {
             application: app,
             appElement: appElement,
             layoutEngine: layoutEngine,
-            preferredAppKitPoint: preferredAppKitPoint
+            preferredAppKitPoint: preferredAppKitPoint,
+            usesObservedConstraints: false
         )
         return effectiveSmoothPreviewFrame(
             for: action,
@@ -820,7 +1001,8 @@ struct WindowManager: WindowManaging {
             application: app,
             window: targetWindow,
             layoutEngine: layoutEngine,
-            preferredAppKitPoint: preferredAppKitPoint
+            preferredAppKitPoint: preferredAppKitPoint,
+            usesObservedConstraints: false
         )
         return effectiveSmoothPreviewFrame(
             for: action,
@@ -840,7 +1022,7 @@ struct WindowManager: WindowManaging {
             return targetFrame
         }
 
-        let observedObservation = observedConstraintObservation(for: application, action: action)
+        let observedObservation = smoothObservedConstraintObservation(for: application, action: action)
         let previewFrame = layoutEngine.preview(
             for: action,
             targetFrame: targetFrame,
@@ -870,7 +1052,8 @@ struct WindowManager: WindowManaging {
         application: NSRunningApplication,
         appElement: AXUIElement,
         layoutEngine: WindowLayoutEngine,
-        preferredAppKitPoint: CGPoint?
+        preferredAppKitPoint: CGPoint?,
+        usesObservedConstraints: Bool = true
     ) throws -> ResolvedWindowActionLayout {
         let focusedWindow = try focusedWindowElement(in: appElement)
         return try resolvedWindowActionLayout(
@@ -878,7 +1061,8 @@ struct WindowManager: WindowManaging {
             application: application,
             window: focusedWindow,
             layoutEngine: layoutEngine,
-            preferredAppKitPoint: preferredAppKitPoint
+            preferredAppKitPoint: preferredAppKitPoint,
+            usesObservedConstraints: usesObservedConstraints
         )
     }
 
@@ -887,7 +1071,8 @@ struct WindowManager: WindowManaging {
         application: NSRunningApplication,
         window: AXUIElement,
         layoutEngine: WindowLayoutEngine,
-        preferredAppKitPoint: CGPoint?
+        preferredAppKitPoint: CGPoint?,
+        usesObservedConstraints: Bool = true
     ) throws -> ResolvedWindowActionLayout {
         let screens = NSScreen.screens
         guard screens.isEmpty == false else {
@@ -936,10 +1121,9 @@ struct WindowManager: WindowManaging {
             currentVisibleFrame: currentScreenFrame
         )
 
-        let observedObservation = observedConstraintObservation(
-            for: application,
-            action: action
-        )
+        let observedObservation = usesObservedConstraints
+            ? observedConstraintObservation(for: application, action: action)
+            : nil
         let constrainedTargetFrame = layoutEngine.constrainedTargetFrame(
             for: action,
             targetFrame: targetFrame,
@@ -1085,6 +1269,88 @@ struct WindowManager: WindowManaging {
         )
     }
 
+    private func smoothObservedConstraintObservation(
+        for application: NSRunningApplication,
+        action: WindowAction
+    ) -> WindowActionPreview.Observation? {
+        smoothWindowConstraintStore.observation(
+            for: observationKey(for: application),
+            action: action
+        )
+    }
+
+    private func recordSmoothObservedConstraintBounds(
+        _ sizeBounds: WindowActionPreview.SizeBounds,
+        horizontalAnchor: WindowActionPreview.AxisAnchor?,
+        verticalAnchor: WindowActionPreview.AxisAnchor?,
+        action: WindowAction,
+        for application: NSRunningApplication
+    ) {
+        smoothWindowConstraintStore.record(
+            sizeBounds: sizeBounds,
+            horizontalAnchor: horizontalAnchor,
+            verticalAnchor: verticalAnchor,
+            action: action,
+            for: observationKey(for: application)
+        )
+    }
+
+    private func recordSmoothObservedConstraintIfNeeded(
+        requestedFrame: CGRect,
+        appliedFrame: CGRect,
+        action: WindowAction,
+        application: NSRunningApplication
+    ) {
+        guard action.supportsSnapPreview else {
+            return
+        }
+
+        let previewObservation = observedPreviewObservation(
+            requestedFrame: requestedFrame,
+            appliedFrame: appliedFrame
+        )
+        guard previewObservation.sizeBounds.hasConstraints else {
+            return
+        }
+
+        recordSmoothObservedConstraintBounds(
+            previewObservation.sizeBounds,
+            horizontalAnchor: previewObservation.horizontalAnchor,
+            verticalAnchor: previewObservation.verticalAnchor,
+            action: action,
+            for: application
+        )
+    }
+
+    private func observedPreviewObservation(
+        requestedFrame: CGRect,
+        appliedFrame: CGRect,
+        tolerance: CGFloat = 1
+    ) -> WindowActionPreview.Observation {
+        WindowActionPreview.Observation(
+            sizeBounds: WindowActionPreview.SizeBounds(
+                minimumWidth: appliedFrame.width > requestedFrame.width + tolerance ? appliedFrame.width : nil,
+                maximumWidth: appliedFrame.width < requestedFrame.width - tolerance ? appliedFrame.width : nil,
+                minimumHeight: appliedFrame.height > requestedFrame.height + tolerance ? appliedFrame.height : nil,
+                maximumHeight: appliedFrame.height < requestedFrame.height - tolerance ? appliedFrame.height : nil
+            ),
+            horizontalAnchor: observedAnchor(
+                requestedMin: requestedFrame.minX,
+                requestedMax: requestedFrame.maxX,
+                appliedMin: appliedFrame.minX,
+                appliedMax: appliedFrame.maxX,
+                tolerance: tolerance
+            ),
+            verticalAnchor: observedAnchor(
+                requestedMin: requestedFrame.minY,
+                requestedMax: requestedFrame.maxY,
+                appliedMin: appliedFrame.minY,
+                appliedMax: appliedFrame.maxY,
+                tolerance: tolerance
+            )
+        )
+    }
+
     private func observationKey(for application: NSRunningApplication) -> String {
         if let bundleIdentifier = application.bundleIdentifier, bundleIdentifier.isEmpty == false {
             return bundleIdentifier
@@ -1125,35 +1391,6 @@ struct WindowManager: WindowManaging {
         DebugLog.debug(
             DebugLog.windows,
             "Recorded observed window constraint bounds \(constraintBoundsDescription(previewObservation.sizeBounds)) for \(application.bundleIdentifier ?? application.localizedName ?? "unknown") after requested \(NSStringFromRect(requestedFrame)) applied as \(NSStringFromRect(appliedFrame)); horizontalAnchor = \(String(describing: previewObservation.horizontalAnchor)), verticalAnchor = \(String(describing: previewObservation.verticalAnchor))"
-        )
-    }
-
-    private func observedPreviewObservation(
-        requestedFrame: CGRect,
-        appliedFrame: CGRect,
-        tolerance: CGFloat = 1
-    ) -> WindowActionPreview.Observation {
-        WindowActionPreview.Observation(
-            sizeBounds: WindowActionPreview.SizeBounds(
-                minimumWidth: appliedFrame.width > requestedFrame.width + tolerance ? appliedFrame.width : nil,
-                maximumWidth: appliedFrame.width < requestedFrame.width - tolerance ? appliedFrame.width : nil,
-                minimumHeight: appliedFrame.height > requestedFrame.height + tolerance ? appliedFrame.height : nil,
-                maximumHeight: appliedFrame.height < requestedFrame.height - tolerance ? appliedFrame.height : nil
-            ),
-            horizontalAnchor: observedAnchor(
-                requestedMin: requestedFrame.minX,
-                requestedMax: requestedFrame.maxX,
-                appliedMin: appliedFrame.minX,
-                appliedMax: appliedFrame.maxX,
-                tolerance: tolerance
-            ),
-            verticalAnchor: observedAnchor(
-                requestedMin: requestedFrame.minY,
-                requestedMax: requestedFrame.maxY,
-                appliedMin: appliedFrame.minY,
-                appliedMax: appliedFrame.maxY,
-                tolerance: tolerance
-            )
         )
     }
 
@@ -2055,20 +2292,43 @@ struct WindowManager: WindowManaging {
 
     private func smoothPreviewSession(
         for window: AXUIElement,
-        initialAppKitFrame: CGRect
+        initialAppKitFrame: CGRect,
+        visibleFrame: CGRect,
+        action: WindowAction,
+        application: NSRunningApplication,
+        screenGeometry: ScreenGeometry
     ) -> SmoothWindowPreviewSession {
-        let geometry = ScreenGeometry(screenFrames: NSScreen.screens.map(\.frame))
         return SmoothWindowPreviewSession(
             originalAppKitFrame: initialAppKitFrame,
             loadCurrentAppKitFrame: { [window] in
-                guard let currentAXFrame = self.readFrameBestEffort(of: window, context: "during smooth preview") else {
+                guard let currentAXFrame = self.readFrameBestEffort(
+                    of: window,
+                    context: "during smooth preview"
+                ) else {
                     return nil
                 }
-                return geometry.appKitFrame(fromAXFrame: currentAXFrame)
+                return screenGeometry.appKitFrame(fromAXFrame: currentAXFrame)
             },
             applyAppKitFrame: { [window] appKitFrame in
-                let axFrame = geometry.axFrame(fromAppKitFrame: appKitFrame)
-                _ = try self.setFrame(axFrame, for: window)
+                // Clamp intermediate frames to the visible screen region so
+                // smooth preview never drives the window outside the display.
+                let clampedAppKitFrame = self.clampFrame(appKitFrame, to: visibleFrame)
+                let axFrame = screenGeometry.axFrame(fromAppKitFrame: clampedAppKitFrame)
+                let outcome = try self.setFrame(axFrame, for: window)
+
+                let appliedAXFrame: CGRect
+                switch outcome {
+                case .exact(let frame), .constrained(let frame):
+                    appliedAXFrame = frame
+                }
+
+                let appliedAppKitFrame = screenGeometry.appKitFrame(fromAXFrame: appliedAXFrame)
+                self.recordSmoothObservedConstraintIfNeeded(
+                    requestedFrame: clampedAppKitFrame,
+                    appliedFrame: appliedAppKitFrame,
+                    action: action,
+                    application: application
+                )
             }
         )
     }

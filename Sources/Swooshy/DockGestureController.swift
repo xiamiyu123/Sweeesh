@@ -29,7 +29,7 @@ final class DockGestureController {
     private var monitoringState: MonitoringState?
     private var isShuttingDown = false
     private let restoreHUDLeadDelay: UInt64 = 16_000_000
-    private let gestureStateTimeout: TimeInterval = 10
+    private let gestureStateTimeout: TimeInterval = 30
     private var gestureStateWatchdog: Timer?
     private var gestureStateWatchdogState: GestureStateSnapshot?
 
@@ -407,17 +407,44 @@ final class DockGestureController {
                 requireFrontmostOwnership: settingsStore.titleBarOverlayProtectionEnabled
             )
         } : nil
-        let hoveredTitleBarTarget = needsTitleBarLookup && hoveredDockApplication == nil
-            ? mouseLocation.flatMap {
-                titleBarProbe.hoveredTarget(
-                    at: $0,
+        let hoveredTitleBarTarget: TitleBarHoverTarget?
+        if needsTitleBarLookup && hoveredDockApplication == nil, let mouseLocation {
+        #if DEBUG
+            if settingsStore.debugLoggingEnabled {
+                let start = CFAbsoluteTimeGetCurrent()
+                hoveredTitleBarTarget = titleBarProbe.hoveredTarget(
+                    at: mouseLocation,
+                    requireFrontmostOwnership: settingsStore.titleBarOverlayProtectionEnabled,
+                    titleBarHeight: CGFloat(settingsStore.titleBarTriggerHeight),
+                    allowFullScreen: settingsStore.smartPinchExitFullScreenEnabled,
+                    allowBrowserTabFallback: settingsStore.smartBrowserTabCloseEnabled
+                )
+                let elapsedMs = (CFAbsoluteTimeGetCurrent() - start) * 1000
+                DebugLog.debug(
+                    DebugLog.dock,
+                    String(format: "titleBarProbe.hoveredTarget took %.1f ms", elapsedMs)
+                )
+            } else {
+                hoveredTitleBarTarget = titleBarProbe.hoveredTarget(
+                    at: mouseLocation,
                     requireFrontmostOwnership: settingsStore.titleBarOverlayProtectionEnabled,
                     titleBarHeight: CGFloat(settingsStore.titleBarTriggerHeight),
                     allowFullScreen: settingsStore.smartPinchExitFullScreenEnabled,
                     allowBrowserTabFallback: settingsStore.smartBrowserTabCloseEnabled
                 )
             }
-            : nil
+        #else
+            hoveredTitleBarTarget = titleBarProbe.hoveredTarget(
+                at: mouseLocation,
+                requireFrontmostOwnership: settingsStore.titleBarOverlayProtectionEnabled,
+                titleBarHeight: CGFloat(settingsStore.titleBarTriggerHeight),
+                allowFullScreen: settingsStore.smartPinchExitFullScreenEnabled,
+                allowBrowserTabFallback: settingsStore.smartBrowserTabCloseEnabled
+            )
+        #endif
+        } else {
+            hoveredTitleBarTarget = nil
+        }
 
 #if DEBUG
         if shouldLogFrame(
@@ -1769,6 +1796,7 @@ private final class TitleBarAccessibilityProbe {
         let application: DockApplicationTarget
         let frame: CGRect
         let expiresAt: Date
+        let isFullScreen: Bool
     }
 
     private struct HoveredWindowTarget {
@@ -1776,7 +1804,11 @@ private final class TitleBarAccessibilityProbe {
         let window: AXUIElement
     }
 
+    private var preheatTask: Task<Void, Never>?
+
     func clearCache() {
+        preheatTask?.cancel()
+        preheatTask = nil
         cachedHitRegion = nil
         lastProbeLogAt = .distantPast
         lastProbeLogKey = ""
@@ -1792,6 +1824,14 @@ private final class TitleBarAccessibilityProbe {
         let now = Date()
 
         if let cachedHitRegion, now < cachedHitRegion.expiresAt {
+            // 快过期时异步预热（距离过期还有 ≤0.15 秒）
+            if now >= cachedHitRegion.expiresAt.addingTimeInterval(-0.15) {
+                startPreheatIfNeeded(
+                    titleBarHeight: titleBarHeight,
+                    allowFullScreen: allowFullScreen
+                )
+            }
+
             if
                 cachedHitRegion.frame.contains(appKitPoint),
                 pointBelongsToFrontmostApplication(
@@ -1816,6 +1856,10 @@ private final class TitleBarAccessibilityProbe {
                 return nil
             }
         }
+
+        // 缓存过期 → 同步重建
+        preheatTask?.cancel()
+        preheatTask = nil
 
         guard AXIsProcessTrusted() else {
             cachedHitRegion = nil
@@ -1850,7 +1894,8 @@ private final class TitleBarAccessibilityProbe {
         cachedHitRegion = CachedHitRegion(
             application: target,
             frame: titleBarFrame,
-            expiresAt: now.addingTimeInterval(cacheTTL)
+            expiresAt: now.addingTimeInterval(cacheTTL),
+            isFullScreen: windowIsFullScreen
         )
 
         if
@@ -1899,6 +1944,59 @@ private final class TitleBarAccessibilityProbe {
             }
         )
         return nil
+    }
+
+    private func startPreheatIfNeeded(titleBarHeight: CGFloat, allowFullScreen: Bool) {
+        guard preheatTask == nil else { return }
+
+        preheatTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+
+            let mouseLocation = NSEvent.mouseLocation
+
+            guard AXIsProcessTrusted() else {
+                self.cachedHitRegion = nil
+                self.preheatTask = nil
+                return
+            }
+
+            guard let hoveredTarget = self.hoveredWindowTarget(at: mouseLocation) else {
+                self.cachedHitRegion = nil
+                self.preheatTask = nil
+                return
+            }
+
+            let window = hoveredTarget.window
+            guard let appKitWindowFrame = self.appKitFrame(of: window) else {
+                self.cachedHitRegion = nil
+                self.preheatTask = nil
+                return
+            }
+
+            let windowIsFullScreen = self.isFullScreen(window)
+            if windowIsFullScreen, !allowFullScreen {
+                self.cachedHitRegion = nil
+                self.preheatTask = nil
+                return
+            }
+
+            let titleBarFrame = self.titleBarFrame(for: appKitWindowFrame, titleBarHeight: titleBarHeight)
+            guard titleBarFrame.isEmpty == false else {
+                self.cachedHitRegion = nil
+                self.preheatTask = nil
+                return
+            }
+
+            let now = Date()
+            self.cachedHitRegion = CachedHitRegion(
+                application: hoveredTarget.application,
+                frame: titleBarFrame,
+                expiresAt: now.addingTimeInterval(self.cacheTTL),
+                isFullScreen: windowIsFullScreen
+            )
+
+            self.preheatTask = nil
+        }
     }
 
     private func hoveredWindowTarget(at appKitPoint: CGPoint) -> HoveredWindowTarget? {

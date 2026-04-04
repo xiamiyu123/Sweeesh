@@ -359,7 +359,6 @@ final class SmoothWindowPreviewSession {
     private let applyAppKitFrame: (CGRect) throws -> Void
     private var animationTask: Task<Void, Never>?
     private var currentTarget: CGRect?
-    private var lastAppliedFrame: CGRect?
 
     init(
         originalAppKitFrame: CGRect,
@@ -402,17 +401,16 @@ final class SmoothWindowPreviewSession {
             let chaseFactor: CGFloat = 0.32
             let snapThreshold: CGFloat = 0.5
 
+            var previousFrame = self.loadCurrentAppKitFrame() ?? self.originalAppKitFrame
+
             while !Task.isCancelled {
                 guard let target = self.currentTarget else { break }
-                let current = self.lastAppliedFrame
-                    ?? self.loadCurrentAppKitFrame()
-                    ?? self.originalAppKitFrame
+                let current = self.loadCurrentAppKitFrame() ?? previousFrame
 
                 if self.framesAreClose(current, target, threshold: snapThreshold) {
                     if current.integral != target {
                         do {
                             try self.applyAppKitFrame(target)
-                            self.lastAppliedFrame = target
                         } catch {
                             DebugLog.debug(
                                 DebugLog.windows,
@@ -432,7 +430,7 @@ final class SmoothWindowPreviewSession {
 
                 do {
                     try self.applyAppKitFrame(next)
-                    self.lastAppliedFrame = next
+                    previousFrame = next
                 } catch {
                     DebugLog.debug(
                         DebugLog.windows,
@@ -947,22 +945,23 @@ struct WindowManager: WindowManaging {
             targetFrame: targetFrame,
             observation: observedObservation
         )
+        let clampedTargetFrame = clampFrame(constrainedTargetFrame, to: currentScreenFrame)
 
         DebugLog.debug(
             DebugLog.windows,
-            "Calculated target frame \(NSStringFromRect(constrainedTargetFrame)) from current frame \(NSStringFromRect(currentFrame))"
+            "Calculated target frame \(NSStringFromRect(clampedTargetFrame)) from current frame \(NSStringFromRect(currentFrame))"
         )
 
-        let targetAXFrame = screenGeometry.axFrame(fromAppKitFrame: constrainedTargetFrame)
+        let targetAXFrame = screenGeometry.axFrame(fromAppKitFrame: clampedTargetFrame)
         DebugLog.debug(
             DebugLog.windows,
-            "Writing target AX frame \(NSStringFromRect(targetAXFrame)) converted from AppKit target \(NSStringFromRect(constrainedTargetFrame))"
+            "Writing target AX frame \(NSStringFromRect(targetAXFrame)) converted from AppKit target \(NSStringFromRect(clampedTargetFrame))"
         )
 
         return ResolvedWindowActionLayout(
             focusedWindow: window,
             screenGeometry: screenGeometry,
-            targetFrame: constrainedTargetFrame,
+            targetFrame: clampedTargetFrame,
             targetAXFrame: targetAXFrame
         )
     }
@@ -2069,22 +2068,7 @@ struct WindowManager: WindowManaging {
             },
             applyAppKitFrame: { [window] appKitFrame in
                 let axFrame = geometry.axFrame(fromAppKitFrame: appKitFrame)
-                var size = CGSize(width: max(1, axFrame.width), height: max(1, axFrame.height))
-                var origin = axFrame.origin
-                guard let sizeValue = AXValueCreate(.cgSize, &size),
-                      let positionValue = AXValueCreate(.cgPoint, &origin)
-                else {
-                    throw WindowManagerError.unableToSetFrame
-                }
-                let sizeError = AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, sizeValue)
-                let positionError = AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, positionValue)
-                guard sizeError == .success, positionError == .success else {
-                    DebugLog.error(
-                        DebugLog.accessibility,
-                        "Failed to set smooth preview AX frame; sizeError = \(sizeError.rawValue), positionError = \(positionError.rawValue)"
-                    )
-                    throw WindowManagerError.unableToSetFrame
-                }
+                _ = try self.setFrame(axFrame, for: window)
             }
         )
     }
@@ -2388,6 +2372,32 @@ struct WindowManager: WindowManaging {
         ) != nil
     }
 
+    private func clampFrame(_ frame: CGRect, to visibleFrame: CGRect) -> CGRect {
+        var clamped = frame
+
+        if clamped.width > visibleFrame.width {
+            clamped.size.width = visibleFrame.width
+        }
+        if clamped.height > visibleFrame.height {
+            clamped.size.height = visibleFrame.height
+        }
+
+        if clamped.minX < visibleFrame.minX {
+            clamped.origin.x = visibleFrame.minX
+        }
+        if clamped.maxX > visibleFrame.maxX {
+            clamped.origin.x = visibleFrame.maxX - clamped.width
+        }
+        if clamped.minY < visibleFrame.minY {
+            clamped.origin.y = visibleFrame.minY
+        }
+        if clamped.maxY > visibleFrame.maxY {
+            clamped.origin.y = visibleFrame.maxY - clamped.height
+        }
+
+        return clamped.integral
+    }
+
     private func logScreenConfiguration(_ screens: [NSScreen], preferredAppKitPoint: CGPoint?) {
         let screenSummary = screens.enumerated().map { index, screen in
             let name = screen.localizedName
@@ -2446,7 +2456,11 @@ struct WindowManager: WindowManaging {
 
         DebugLog.debug(
             DebugLog.windows,
-            "Resolved geometry for action \(String(describing: action)) in app \(application.localizedName ?? "unknown") [\(application.bundleIdentifier ?? "unknown")]: title=\(title), role=\(role), subrole=\(subrole), main=\(isMain), focused=\(isFocused), minimized=\(isMinimized), AX frame=\(NSStringFromRect(axFrame)), AppKit frame=\(NSStringFromRect(appKitFrame))"
+            {
+                let appName = application.localizedName ?? "unknown"
+                let bundleID = application.bundleIdentifier ?? "unknown"
+                return "Resolved geometry for action \(String(describing: action)) in app \(appName) [\(bundleID)]: title=\(title), role=\(role), subrole=\(subrole), main=\(isMain), focused=\(isFocused), minimized=\(isMinimized), AX frame=\(NSStringFromRect(axFrame)), AppKit frame=\(NSStringFromRect(appKitFrame))"
+            }()
         )
     }
 

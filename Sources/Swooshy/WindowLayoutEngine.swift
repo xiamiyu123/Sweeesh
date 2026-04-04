@@ -205,12 +205,41 @@ struct WindowLayoutEngine {
         defaultHorizontalAnchor: WindowActionPreview.AxisAnchor,
         defaultVerticalAnchor: WindowActionPreview.AxisAnchor
     ) -> CGRect {
-        let observedSize = observation?.sizeBounds.constrainedSize(for: targetFrame.size) ?? targetFrame.size
-        let horizontalAnchor = observation?.horizontalAnchor ?? defaultHorizontalAnchor
-        let verticalAnchor = observation?.verticalAnchor ?? defaultVerticalAnchor
+        let sizeBounds = observation?.sizeBounds
+        let resolvedSize: CGSize
+        if let sizeBounds {
+            resolvedSize = sizeBounds.constrainedSize(for: targetFrame.size)
+        } else {
+            resolvedSize = targetFrame.size
+        }
 
-        let width = observedSize.width
-        let height = observedSize.height
+        var horizontalAnchor = observation?.horizontalAnchor ?? defaultHorizontalAnchor
+        var verticalAnchor = observation?.verticalAnchor ?? defaultVerticalAnchor
+
+        if let sizeBounds {
+            let constrainedSize = resolvedSize
+
+            if sizeBounds.maximumWidth != nil,
+               constrainedSize.width <= targetFrame.width,
+               horizontalAnchor != defaultHorizontalAnchor {
+                let widthRatio = constrainedSize.width / targetFrame.width
+                if widthRatio <= 0.5 {
+                    horizontalAnchor = defaultHorizontalAnchor
+                }
+            }
+
+            if sizeBounds.maximumHeight != nil,
+               constrainedSize.height <= targetFrame.height,
+               verticalAnchor != defaultVerticalAnchor {
+                let heightRatio = constrainedSize.height / targetFrame.height
+                if heightRatio <= 0.5 {
+                    verticalAnchor = defaultVerticalAnchor
+                }
+            }
+        }
+
+        let width = resolvedSize.width
+        let height = resolvedSize.height
 
         let originX = anchoredOrigin(
             min: targetFrame.minX,

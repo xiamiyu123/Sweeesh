@@ -1376,8 +1376,7 @@ final class DockGestureController {
     }
 
     private func shouldUseSmoothWindowPreview(for action: WindowAction?) -> Bool {
-        settingsStore.executeGestureOnRelease &&
-            settingsStore.smoothWindowPreviewEnabled &&
+        settingsStore.smoothWindowPreviewEnabled &&
             action?.supportsSnapPreview == true
     }
 

@@ -65,4 +65,28 @@ struct ConstrainedTargetFrameTests {
 
         #expect(result == CGRect(x: 120, y: 50, width: 1200, height: 800))
     }
+
+    @Test
+    func constrainedTargetFrameUsesActionVerticalAnchorForStrongMaxHeightInBottomLeftQuarter() {
+        let target = CGRect(x: 0, y: 0, width: 704, height: 383)
+
+        let observation = WindowActionPreview.Observation(
+            sizeBounds: .init(
+                minimumWidth: nil,
+                maximumWidth: 182,
+                minimumHeight: nil,
+                maximumHeight: 40
+            ),
+            horizontalAnchor: .leadingEdge,
+            verticalAnchor: .trailingEdge
+        )
+
+        let result = engine.constrainedTargetFrame(
+            for: .bottomLeftQuarter,
+            targetFrame: target,
+            observation: observation
+        )
+
+        #expect(result.origin.y == 0)
+    }
 }

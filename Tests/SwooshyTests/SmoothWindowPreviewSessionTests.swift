@@ -8,11 +8,13 @@ struct SmoothWindowPreviewSessionTests {
     func animateMovesTowardTarget() async {
         let original = CGRect(x: 0, y: 0, width: 100, height: 100)
         var appliedFrames: [CGRect] = []
+        var currentFrame = original
 
         let session = SmoothWindowPreviewSession(
             originalAppKitFrame: original,
-            loadCurrentAppKitFrame: { original },
+            loadCurrentAppKitFrame: { currentFrame },
             applyAppKitFrame: { frame in
+                currentFrame = frame
                 appliedFrames.append(frame)
             }
         )
@@ -46,11 +48,13 @@ struct SmoothWindowPreviewSessionTests {
     func finishStopsFurtherAnimation() async {
         let original = CGRect(x: 0, y: 0, width: 100, height: 100)
         var appliedFrames: [CGRect] = []
+        var currentFrame = original
 
         let session = SmoothWindowPreviewSession(
             originalAppKitFrame: original,
-            loadCurrentAppKitFrame: { original },
+            loadCurrentAppKitFrame: { currentFrame },
             applyAppKitFrame: { frame in
+                currentFrame = frame
                 appliedFrames.append(frame)
             }
         )

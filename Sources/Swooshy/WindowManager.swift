@@ -800,6 +800,19 @@ struct WindowManager: WindowManaging {
         )
     }
 
+    func preferredFullScreenWindow(
+        matching target: DockApplicationTarget,
+        preferredAppKitPoint: CGPoint?
+    ) throws -> AXUIElement? {
+        let app = try runningApplication(matching: target)
+        let appElement = AXUIElementCreateApplication(app.processIdentifier)
+        return preferredFullScreenWindow(
+            in: app,
+            appElement: appElement,
+            preferredAppKitPoint: preferredAppKitPoint
+        )
+    }
+
     private func frontmostApplication() throws -> NSRunningApplication {
         guard let app = NSWorkspace.shared.frontmostApplication else {
             throw WindowManagerError.noFrontmostApplication
@@ -954,6 +967,54 @@ struct WindowManager: WindowManaging {
         }
 
         return try fallback()
+    }
+
+    private func preferredFullScreenWindow(
+        in app: NSRunningApplication,
+        appElement: AXUIElement,
+        preferredAppKitPoint: CGPoint?
+    ) -> AXUIElement? {
+        if
+            let preferredAppKitPoint,
+            let pointedWindow = try? preferredWindowActionTarget(
+                in: app,
+                appElement: appElement,
+                preferredAppKitPoint: preferredAppKitPoint
+            ),
+            isFullScreen(pointedWindow)
+        {
+            return pointedWindow
+        }
+
+        if
+            let focusedWindow = try? focusedWindowElement(in: appElement),
+            isFullScreen(focusedWindow)
+        {
+            return focusedWindow
+        }
+
+        if
+            let mainWindow = try? mainWindowElement(in: appElement),
+            isFullScreen(mainWindow)
+        {
+            return mainWindow
+        }
+
+        if
+            let visibleWindows = try? orderedVisibleWindowElements(in: app, appElement: appElement),
+            let fullScreenVisibleWindow = visibleWindows.first(where: isFullScreen)
+        {
+            return fullScreenVisibleWindow
+        }
+
+        if
+            let allWindows = try? windowElements(in: appElement),
+            let fullScreenWindow = allWindows.first(where: isFullScreen)
+        {
+            return fullScreenWindow
+        }
+
+        return nil
     }
 
     private func windowContainingPoint(

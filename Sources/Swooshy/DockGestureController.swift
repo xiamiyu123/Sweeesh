@@ -647,15 +647,11 @@ final class DockGestureController {
             return
         }
 
-        let app = try? windowManager.runningApplication(matching: event.application)
-        let window = app.flatMap { application in
-            try? windowManager.preferredWindowActionTarget(
-                in: application,
-                appElement: AXUIElementCreateApplication(application.processIdentifier),
-                preferredAppKitPoint: anchorPoint
-            )
-        }
-        let isInFullScreen = window.map { windowManager.isFullScreen($0) } ?? false
+        let fullScreenWindow = try? windowManager.preferredFullScreenWindow(
+            matching: event.application,
+            preferredAppKitPoint: anchorPoint
+        )
+        let isInFullScreen = fullScreenWindow != nil
 
         // Whitelist: In Full Screen, ONLY Pinch In is allowed (for smart exit).
         if isInFullScreen {
@@ -679,8 +675,7 @@ final class DockGestureController {
                 "action.close_tab",
                 preferredLanguages: settingsStore.preferredLanguages
             )
-        }
-        if isInFullScreen, event.gesture == .pinchIn {
+        } else if isInFullScreen, event.gesture == .pinchIn {
             actionTitle = L10n.string(
                 "action.exit_full_screen",
                 preferredLanguages: settingsStore.preferredLanguages
@@ -738,20 +733,6 @@ final class DockGestureController {
         replacesWithTabClose: Bool = false
     ) {
         do {
-            if settingsStore.smartPinchExitFullScreenEnabled, event.gesture == .pinchIn {
-                let app = try windowManager.runningApplication(matching: event.application)
-                if let window = try? windowManager.preferredWindowActionTarget(
-                    in: app,
-                    appElement: AXUIElementCreateApplication(app.processIdentifier),
-                    preferredAppKitPoint: anchorPoint
-                ),
-                   windowManager.isFullScreen(window) {
-                    try windowManager.setFullScreen(false, for: window)
-                    DebugLog.info(DebugLog.dock, "Smart intercept: pinched in on full screen window, forced exit.")
-                    return
-                }
-            }
-
             if replacesWithTabClose {
                 if BrowserTabProbe.simulateMiddleClick(at: anchorPoint) {
                     DebugLog.info(
@@ -765,6 +746,17 @@ final class DockGestureController {
                     DebugLog.dock,
                     "Smart browser tab close simulation failed; falling back to \(String(describing: action)) for \(event.application.logDescription)"
                 )
+            }
+
+            if settingsStore.smartPinchExitFullScreenEnabled, event.gesture == .pinchIn,
+               let window = try windowManager.preferredFullScreenWindow(
+                    matching: event.application,
+                    preferredAppKitPoint: anchorPoint
+               )
+            {
+                try windowManager.setFullScreen(false, for: window)
+                DebugLog.info(DebugLog.dock, "Smart intercept: pinched in on full screen window, forced exit.")
+                return
             }
 
             try windowManager.perform(
@@ -1068,11 +1060,6 @@ final class DockGestureController {
             return false
         }
 
-        guard isInFullScreen == false else {
-            DebugLog.debug(DebugLog.dock, "Smart browser tab close skipped in full screen")
-            return false
-        }
-
         guard action == .closeWindow || action == .quitApplication else {
             DebugLog.debug(DebugLog.dock, "Smart browser tab close skipped for non-close action \(String(describing: action))")
             return false
@@ -1092,6 +1079,11 @@ final class DockGestureController {
             DebugLog.dock,
             "Smart browser tab probe for \(event.application.logDescription) at \(NSStringFromPoint(anchorPoint)) => \(isBrowserTab)"
         )
+
+        if isInFullScreen && isBrowserTab == false {
+            DebugLog.debug(DebugLog.dock, "Smart browser tab close skipped in full screen outside browser tab")
+        }
+
         return isBrowserTab
     }
 

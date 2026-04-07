@@ -86,6 +86,8 @@ struct WindowOrdering {
         orderedDescriptor: WindowOrderDescriptor,
         normalizedOrderedTitle: String
     ) -> Int? {
+        // Prefer a close frame match, then fall back to title plus nearby centers
+        // for apps whose AX and CG snapshots disagree by a few points.
         let titlesMatch = normalizedWindowTitle.isEmpty == false &&
             normalizedWindowTitle == normalizedOrderedTitle
 

@@ -238,13 +238,13 @@ enum ShortcutKey: String, CaseIterable, Codable, Identifiable, Sendable {
         case .nine:
             return "9"
         case .leftArrow:
-            return String(Character(UnicodeScalar(NSLeftArrowFunctionKey)!))
+            return Self.menuFunctionKeyEquivalent(for: NSLeftArrowFunctionKey, fallback: "←")
         case .rightArrow:
-            return String(Character(UnicodeScalar(NSRightArrowFunctionKey)!))
+            return Self.menuFunctionKeyEquivalent(for: NSRightArrowFunctionKey, fallback: "→")
         case .upArrow:
-            return String(Character(UnicodeScalar(NSUpArrowFunctionKey)!))
+            return Self.menuFunctionKeyEquivalent(for: NSUpArrowFunctionKey, fallback: "↑")
         case .downArrow:
-            return String(Character(UnicodeScalar(NSDownArrowFunctionKey)!))
+            return Self.menuFunctionKeyEquivalent(for: NSDownArrowFunctionKey, fallback: "↓")
         case .grave:
             return "`"
         case .a:
@@ -399,6 +399,14 @@ enum ShortcutKey: String, CaseIterable, Codable, Identifiable, Sendable {
     private static let keysByCode: [UInt32: ShortcutKey] = {
         Dictionary(uniqueKeysWithValues: allCases.map { ($0.keyCode, $0) })
     }()
+
+    private static func menuFunctionKeyEquivalent(for functionKey: Int, fallback: String) -> String {
+        guard let scalar = UnicodeScalar(UInt32(functionKey)) else {
+            return fallback
+        }
+
+        return String(Character(scalar))
+    }
 }
 
 struct HotKeyBinding: Codable, Equatable, Sendable {

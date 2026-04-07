@@ -298,6 +298,8 @@ final class GestureFeedbackController: GestureFeedbackPresenting {
 
     private let verticalOffset: CGFloat = 18
     private let sideMargin: CGFloat = 10
+    private let hideAnimationDuration: TimeInterval = 0.12
+    private let hideAnimationDelayNanoseconds: UInt64 = 120_000_000
     private let dismissalDelay: UInt64 = 700_000_000
 
     init(settingsStore: SettingsStore) {
@@ -444,7 +446,7 @@ final class GestureFeedbackController: GestureFeedbackPresenting {
         dismissTask = nil
 
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.12
+            context.duration = hideAnimationDuration
             context.timingFunction = CAMediaTimingFunction(name: .easeIn)
             previewPanel.animator().alphaValue = 0
             panel.animator().alphaValue = 0
@@ -460,17 +462,31 @@ final class GestureFeedbackController: GestureFeedbackPresenting {
 
     func dismiss() {
         dismissTask?.cancel()
-        dismissTask = nil
         hideGeneration &+= 1
         previewPanel.animator().alphaValue = 0
         panel.animator().alphaValue = 0
-        let gen = hideGeneration
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
-            MainActor.assumeIsolated {
-                guard let self, gen == self.hideGeneration else { return }
-                self.previewPanel.orderOut(nil)
-                self.panel.orderOut(nil)
+        let delay = hideAnimationDelayNanoseconds
+        let generation = hideGeneration
+
+        dismissTask = Task { @MainActor [weak self] in
+            defer {
+                if let self, generation == self.hideGeneration {
+                    self.dismissTask = nil
+                }
             }
+
+            do {
+                try await Task.sleep(nanoseconds: delay)
+            } catch is CancellationError {
+                return
+            } catch {
+                DebugLog.debug(DebugLog.dock, "HUD dismiss animation wait failed unexpectedly: \(error.localizedDescription)")
+                return
+            }
+
+            guard let self, generation == self.hideGeneration else { return }
+            self.previewPanel.orderOut(nil)
+            self.panel.orderOut(nil)
         }
     }
 

@@ -27,7 +27,7 @@ final class DockGestureController {
     private var pendingTouchFrame: TrackpadTouchFrame?
     private var isProcessingTouchFrame = false
     private var monitoringState: MonitoringState?
-    private var monitoringSuppressedBySettingsWindowHover = false
+    private var settingsWindowHoverSuppressionRequested = false
     private var isShuttingDown = false
     private let restoreHUDLeadDelay: UInt64 = 16_000_000
     private let gestureStateTimeout: TimeInterval = 30
@@ -225,13 +225,13 @@ final class DockGestureController {
             return
         }
 
-        guard monitoringSuppressedBySettingsWindowHover != isSuppressed else {
+        guard settingsWindowHoverSuppressionRequested != isSuppressed else {
             return
         }
 
-        monitoringSuppressedBySettingsWindowHover = isSuppressed
+        settingsWindowHoverSuppressionRequested = isSuppressed
 
-        if isSuppressed {
+        if isSuppressed && activeInteractionPreventsSettingsHoverPause == false {
             pendingTouchFrame = nil
             isProcessingTouchFrame = false
             lastTouchCount = 0
@@ -252,18 +252,34 @@ final class DockGestureController {
         return monitoringState.dockGesturesEnabled || monitoringState.titleBarGesturesEnabled
     }
 
+    private var activeInteractionPreventsSettingsHoverPause: Bool {
+        hasActiveGestureState || smoothDockingSession != nil
+    }
+
+    private var shouldSuppressTrackpadMonitoringForSettingsHover: Bool {
+        settingsWindowHoverSuppressionRequested && activeInteractionPreventsSettingsHoverPause == false
+    }
+
     private var shouldMonitorTrackpad: Bool {
-        monitoringRequestedBySettings && monitoringSuppressedBySettingsWindowHover == false
+        monitoringRequestedBySettings && shouldSuppressTrackpadMonitoringForSettingsHover == false
     }
 
     private func applyTrackpadMonitoringState() {
         if shouldMonitorTrackpad {
+            guard monitor.isMonitoringActive == false else {
+                return
+            }
+
             DebugLog.info(DebugLog.dock, "Starting trackpad gesture monitoring")
             monitor.startIfAvailable()
             return
         }
 
-        if monitoringRequestedBySettings {
+        guard monitor.isMonitoringActive else {
+            return
+        }
+
+        if shouldSuppressTrackpadMonitoringForSettingsHover {
             DebugLog.info(
                 DebugLog.dock,
                 "Pausing trackpad gesture monitoring while pointer is inside settings window"
@@ -1024,6 +1040,7 @@ final class DockGestureController {
 
     private func syncGestureStateWatchdog() {
         let nextState = gestureStateSnapshot()
+        applyTrackpadMonitoringState()
         guard nextState != gestureStateWatchdogState else {
             return
         }
@@ -1363,6 +1380,7 @@ final class DockGestureController {
             _ = try smoothDockingSession.commit()
             smoothDockingSession.finish()
             self.smoothDockingSession = nil
+            applyTrackpadMonitoringState()
             return true
         } catch let error as WindowManagerError {
             handleWindowManagerError(error)
@@ -1373,6 +1391,7 @@ final class DockGestureController {
 
         smoothDockingSession.finish()
         self.smoothDockingSession = nil
+        applyTrackpadMonitoringState()
         return false
     }
 
@@ -1392,12 +1411,14 @@ final class DockGestureController {
 
                 session.finish()
                 self.smoothDockingSession = nil
+                self.applyTrackpadMonitoringState()
             }
             return
         }
 
         smoothDockingSession.finish()
         self.smoothDockingSession = nil
+        applyTrackpadMonitoringState()
     }
 
     private func makeConfiguredRecognizer() -> DockGestureRecognizer {
@@ -2513,6 +2534,10 @@ final class MultitouchInputMonitor {
 
     private var isMonitoring = false
     private var lastDeliveredFingerCount = -1
+
+    var isMonitoringActive: Bool {
+        isMonitoring
+    }
 
     func startIfAvailable() {
         guard isMonitoring == false else { return }

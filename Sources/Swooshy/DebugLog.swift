@@ -58,6 +58,8 @@ enum DebugLog {
     }
 }
 
+/// Serializes file I/O and log rotation so hot paths can append debug output
+/// without coordinating access to the underlying file handle.
 actor DebugLogFileSink {
     private let fileManager = FileManager.default
     let logDirectoryURL: URL
@@ -107,6 +109,8 @@ actor DebugLogFileSink {
     private func performMaintenanceIfNeeded() throws {
         let now = Date()
 
+        // Archive pruning is much slower than an append, so keep that work on a
+        // coarse timer instead of re-scanning the log directory on every write.
         if let lastMaintenanceDate, now.timeIntervalSince(lastMaintenanceDate) < maintenanceInterval {
             return
         }

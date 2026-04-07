@@ -3,6 +3,8 @@ import ApplicationServices
 import CoreGraphics
 import Foundation
 
+/// Centralizes AX reads so callers can treat missing attributes, AX errors,
+/// and unexpected value types as the same "best effort" failure case.
 enum AXAttributeReader {
     private static func attributeValue(_ attribute: CFString, from element: AXUIElement) -> CFTypeRef? {
         var value: CFTypeRef?
@@ -122,6 +124,8 @@ enum AXAttributeReader {
         return hitElement
     }
 
+    /// Walks up the parent chain because hit-testing often lands on a child
+    /// inside the title bar or toolbar instead of the window element itself.
     static func window(containing element: AXUIElement, maxDepth: Int = 12) -> AXUIElement? {
         if let window = self.element(kAXWindowAttribute as CFString, from: element) {
             return window

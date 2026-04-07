@@ -65,6 +65,8 @@ struct WindowActionPreview: Equatable, Sendable {
     let style: Style
 }
 
+/// Maps high-level window actions to target frames and previews, while honoring
+/// the size constraints observed from apps that refuse ideal half/quarter sizes.
 struct WindowLayoutEngine {
     func targetFrame(
         for action: WindowAction,
@@ -185,6 +187,8 @@ struct WindowLayoutEngine {
         currentWindowFrame: CGRect,
         screenFrames: [CGRect]
     ) -> CGRect? {
+        // Prefer the screen the pointer came from so a drag or gesture near a
+        // display boundary still snaps onto the intended monitor.
         let preferredScreenFrame = preferredPoint.flatMap { preferredPoint in
             screenFrames.first { $0.contains(preferredPoint) }
         }
@@ -222,6 +226,8 @@ struct WindowLayoutEngine {
         if let sizeBounds {
             let constrainedSize = resolvedSize
 
+            // Quarter actions look wrong when a constrained window drifts inward,
+            // so keep any dimension that changed pinned to the action's outer edge.
             if action.prefersOuterEdgeAnchoringWhenConstrained {
                 if abs(constrainedSize.width - targetFrame.width) > 1 {
                     horizontalAnchor = defaultHorizontalAnchor
@@ -231,6 +237,8 @@ struct WindowLayoutEngine {
                 }
             }
 
+            // When an app enforces a much smaller maximum size, center anchoring
+            // can make the preview appear detached from the intended snap area.
             if sizeBounds.maximumWidth != nil,
                constrainedSize.width <= targetFrame.width,
                horizontalAnchor != defaultHorizontalAnchor {

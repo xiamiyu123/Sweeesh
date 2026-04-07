@@ -630,6 +630,8 @@ final class SettingsStore {
     private func notifyDidChange(_ categories: SettingsChangeCategory = []) {
         pendingChangeCategories.formUnion(categories)
 
+        // Multiple settings often flip together from one UI interaction; coalesce
+        // them into a single notification so observers rebuild once per run loop.
         guard notificationDispatchPending == false else {
             return
         }

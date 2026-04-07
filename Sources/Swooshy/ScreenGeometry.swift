@@ -1,5 +1,7 @@
 import CoreGraphics
 
+/// Converts between AppKit desktop coordinates and the Accessibility API's
+/// flipped global coordinate space, both of which use the full virtual desktop.
 struct ScreenGeometry {
     private let primaryScreenMaxY: CGFloat
 

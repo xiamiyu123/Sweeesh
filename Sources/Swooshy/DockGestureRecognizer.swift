@@ -87,6 +87,8 @@ enum DockGestureEvent: Equatable {
     }
 }
 
+/// Recognizes two-finger Dock gestures from raw touch frames and locks the
+/// gesture to the app that was hovered when the session began.
 struct DockGestureRecognizer {
     private struct Session: Equatable {
         let application: DockApplicationTarget
@@ -124,6 +126,8 @@ struct DockGestureRecognizer {
                 return nil
             }
 
+            // Capture the hovered app once so sliding across Dock icons mid-gesture
+            // does not retarget the action to a different application.
             self.session = Session(
                 application: hoveredApplication,
                 startAveragePoint: averagePoint,
@@ -292,6 +296,8 @@ struct TitleBarCornerDragRecognizer {
 
         let driftDistance = distance(averagePoint, session.startAveragePoint)
         if driftDistance > stationaryDistanceThreshold {
+            // Rearm from the new resting point so a user can reposition their fingers
+            // and still trigger the hold without lifting both touches first.
             if let hoveredApplication {
                 self.session = Session(
                     application: hoveredApplication,

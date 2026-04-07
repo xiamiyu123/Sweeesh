@@ -8,6 +8,9 @@ enum SmoothDockingAnchor: Equatable, Sendable {
     case bottomTrailing
 }
 
+/// Tracks the minimum and maximum size bounds learned from previous frame writes.
+/// Some apps silently clamp AX writes, so the session uses those observations to
+/// converge on a frame the app will actually accept.
 struct SmoothDockingSizeConstraints: Equatable, Sendable {
     var minimumWidth: CGFloat?
     var maximumWidth: CGFloat?
@@ -28,6 +31,8 @@ struct SmoothDockingSizeConstraints: Equatable, Sendable {
         appliedFrame: CGRect,
         tolerance: CGFloat = 0.5
     ) {
+        // If the app made the frame larger than requested, we learned a minimum.
+        // If it made the frame smaller, we learned a maximum.
         if appliedFrame.width > requestedFrame.width + tolerance {
             minimumWidth = maxNonNil(minimumWidth, appliedFrame.width)
         } else if appliedFrame.width < requestedFrame.width - tolerance {
@@ -138,6 +143,8 @@ struct SmoothDockingPlan: Equatable, Sendable {
     let anchor: SmoothDockingAnchor
 }
 
+/// Resolves the ideal desktop region for a snap action before app-specific size
+/// constraints are applied.
 struct SmoothDockingResolver {
     func desktopFrame(
         preferredPoint: CGPoint?,
@@ -451,6 +458,8 @@ final class SmoothDockingSession {
                     break
                 }
 
+                // Move part of the remaining distance each tick so the preview stays
+                // responsive even when the target keeps shifting after new observations.
                 let interpolatedFrame = CGRect(
                     x: currentFrame.minX + (targetFrame.minX - currentFrame.minX) * self.animationFactor,
                     y: currentFrame.minY + (targetFrame.minY - currentFrame.minY) * self.animationFactor,
@@ -482,6 +491,8 @@ final class SmoothDockingSession {
             appliedFrame: appliedFrame
         )
 
+        // Retarget immediately after each write so later steps chase the frame
+        // the app can actually honor instead of the original ideal geometry.
         let recalculatedTarget = resolvedTargetFrame(for: currentAction)
         if recalculatedTarget != currentTargetFrame {
             DebugLog.debug(
@@ -501,6 +512,8 @@ final class SmoothDockingSession {
         var latestFrame = loadCurrentFrame() ?? originalFrame
         var requestedFrame = targetFrame.integral
 
+        // A few synchronous retries help after the user releases the gesture,
+        // when some apps only expose their final size constraints one write later.
         for _ in 0..<maxIterations {
             latestFrame = try applyAndObserve(requestedFrame)
             let correctedTargetFrame = currentTargetFrame ?? requestedFrame

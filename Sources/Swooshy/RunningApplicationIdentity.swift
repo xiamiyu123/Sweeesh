@@ -1,6 +1,8 @@
 import AppKit
 import Foundation
 
+/// Normalizes the different names macOS exposes for the same app so Dock hits,
+/// AX windows, and running processes can still be matched reliably.
 enum RunningApplicationIdentity {
     static func isLikelyHelperProcess(_ application: NSRunningApplication) -> Bool {
         let localizedName = (application.localizedName ?? "").lowercased()
@@ -70,6 +72,8 @@ enum RunningApplicationIdentity {
             options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive],
             locale: .current
         )
+        // Keep only letters and digits so "Visual Studio Code" and
+        // "visual-studio-code" collapse to the same comparison key.
         let scalars = folded.unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) }
         return String(String.UnicodeScalarView(scalars))
     }

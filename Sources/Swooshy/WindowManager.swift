@@ -35,6 +35,8 @@ private struct FrameWriteResult {
     }
 }
 
+/// Identifies a class of windows within one app so learned size constraints can
+/// be reused across windows that behave the same without leaking between apps.
 struct WindowConstraintObservationScope: Equatable {
     let applicationKey: String
     let role: String
@@ -483,6 +485,8 @@ protocol WindowManaging {
 }
 
 @MainActor
+/// Coordinates AX window reads, window ordering, frame application, and the
+/// higher-level actions exposed to gestures and keyboard shortcuts.
 struct WindowManager: WindowManaging {
     private let windowOrdering = WindowOrdering()
     private let cycleSessions = WindowCycleSessionStore()
@@ -2788,6 +2792,8 @@ struct WindowManager: WindowManaging {
             return []
         }
 
+        // CGWindowList gives a more reliable front-to-back order than AX for
+        // many apps, so we use it as an ordering hint and match back by title/frame.
         return windowInfoList.compactMap { windowInfo in
             guard
                 let ownerPID = windowInfo[kCGWindowOwnerPID as String] as? NSNumber,

@@ -105,7 +105,7 @@
 "settings.window.title" = "Settings";
 "settings.section.general" = "General";
 "settings.section.gestures" = "Gestures";
-"settings.section.dock_gestures" = "Dock & Title Bar Gestures";
+"settings.section.dock_gestures" = "Dock Gestures";
 "settings.section.title_bar_gestures" = "Title Bar Gestures";
 "settings.section.advanced" = "Advanced";
 "settings.section.shortcuts" = "Shortcuts";

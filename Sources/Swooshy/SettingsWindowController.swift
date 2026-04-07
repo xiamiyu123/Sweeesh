@@ -15,7 +15,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         let hostingController = NSHostingController(rootView: rootView)
         let window = NSWindow(contentViewController: hostingController)
 
-        window.setContentSize(NSSize(width: 560, height: 640))
+        window.setContentSize(NSSize(width: 860, height: 640))
+        window.minSize = NSSize(width: 760, height: 560)
         window.styleMask = [.titled, .closable, .miniaturizable]
         window.isReleasedWhenClosed = false
         window.center()
@@ -69,7 +70,154 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 private struct SettingsView: View {
     @Bindable var settingsStore: SettingsStore
     @State private var launchAtLoginController = LaunchAtLoginController()
-    @State private var showingAdvancedSettings = false
+    @State private var selectedPage: SettingsPage? = .general
+
+    var body: some View {
+        NavigationSplitView {
+            SettingsSidebar(
+                selection: $selectedPage,
+                settingsStore: settingsStore
+            )
+        } detail: {
+            SettingsDetailPage(
+                page: selectedPage ?? .general,
+                settingsStore: settingsStore,
+                launchAtLoginController: $launchAtLoginController
+            )
+        }
+        .navigationSplitViewStyle(.balanced)
+        .frame(minWidth: 760, minHeight: 560)
+        .onAppear {
+            launchAtLoginController.refresh(localize: settingsStore.localized)
+        }
+    }
+}
+
+private enum SettingsPage: String, CaseIterable, Identifiable {
+    case general
+    case gestures
+    case dockGestures
+    case titleBarGestures
+    case shortcuts
+    case advanced
+
+    var id: Self { self }
+
+    var localizationKey: String {
+        switch self {
+        case .general:
+            return "settings.section.general"
+        case .gestures:
+            return "settings.section.gestures"
+        case .dockGestures:
+            return "settings.section.dock_gestures"
+        case .titleBarGestures:
+            return "settings.section.title_bar_gestures"
+        case .shortcuts:
+            return "settings.section.shortcuts"
+        case .advanced:
+            return "settings.section.advanced"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .general:
+            return "gearshape"
+        case .gestures:
+            return "hand.draw"
+        case .dockGestures:
+            return "rectangle.bottomthird.inset.filled"
+        case .titleBarGestures:
+            return "rectangle.topthird.inset.filled"
+        case .shortcuts:
+            return "command"
+        case .advanced:
+            return "gearshape.2"
+        }
+    }
+
+    func title(localize: (String) -> String) -> String {
+        localize(localizationKey)
+    }
+}
+
+private struct SettingsSidebar: View {
+    @Binding var selection: SettingsPage?
+    @Bindable var settingsStore: SettingsStore
+
+    var body: some View {
+        List(selection: $selection) {
+            ForEach(SettingsPage.allCases) { page in
+                Label(page.title(localize: settingsStore.localized), systemImage: page.systemImage)
+                    .tag(Optional(page))
+            }
+        }
+        .listStyle(.sidebar)
+        .navigationSplitViewColumnWidth(min: 190, ideal: 210)
+    }
+}
+
+private struct SettingsDetailPage: View {
+    let page: SettingsPage
+    @Bindable var settingsStore: SettingsStore
+    @Binding var launchAtLoginController: LaunchAtLoginController
+
+    var body: some View {
+        Group {
+            switch page {
+            case .general:
+                GeneralSettingsPage(
+                    settingsStore: settingsStore,
+                    launchAtLoginController: $launchAtLoginController
+                )
+            case .gestures:
+                GestureSettingsPage(settingsStore: settingsStore)
+            case .dockGestures:
+                DockGestureMappingsPage(settingsStore: settingsStore)
+            case .titleBarGestures:
+                TitleBarGestureMappingsPage(settingsStore: settingsStore)
+            case .shortcuts:
+                HotKeysSettingsPage(settingsStore: settingsStore)
+            case .advanced:
+                AdvancedSettingsPage(settingsStore: settingsStore)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+}
+
+private struct SettingsFormPage<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        Form {
+            content
+        }
+        .formStyle(.grouped)
+        .padding(20)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+}
+
+private struct SettingsScrollPage<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                content
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(20)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+}
+
+private struct GeneralSettingsPage: View {
+    @Bindable var settingsStore: SettingsStore
+    @Binding var launchAtLoginController: LaunchAtLoginController
 
     private var preferredLanguages: [String] {
         settingsStore.preferredLanguages
@@ -92,6 +240,36 @@ private struct SettingsView: View {
                     : nil
             )
         }
+    }
+
+    var body: some View {
+        SettingsFormPage {
+            GeneralSettingsSection(
+                settingsStore: settingsStore,
+                launchAtLoginController: $launchAtLoginController,
+                languageOptions: languageOptions,
+                statusItemIconOptions: statusItemIconOptions
+            )
+        }
+    }
+
+    private func languageTitle(for language: AppLanguage) -> String {
+        switch language {
+        case .system:
+            return settingsStore.localized("settings.language.system")
+        case .english:
+            return settingsStore.localized("settings.language.english")
+        case .simplifiedChinese:
+            return settingsStore.localized("settings.language.simplified_chinese")
+        }
+    }
+}
+
+private struct GestureSettingsPage: View {
+    @Bindable var settingsStore: SettingsStore
+
+    private var preferredLanguages: [String] {
+        settingsStore.preferredLanguages
     }
 
     private var gestureHUDStyleOptions: [SettingsPickerOption<GestureHUDStyle>] {
@@ -117,7 +295,25 @@ private struct SettingsView: View {
         ]
     }
 
-    private var dockGestureRows: [GestureActionRowModel<DockGestureKind, DockGestureAction>] {
+    var body: some View {
+        SettingsFormPage {
+            GestureSettingsSection(
+                settingsStore: settingsStore,
+                gestureHUDStyleOptions: gestureHUDStyleOptions,
+                previewItems: gesturePreviewItems
+            )
+        }
+    }
+}
+
+private struct DockGestureMappingsPage: View {
+    @Bindable var settingsStore: SettingsStore
+
+    private var preferredLanguages: [String] {
+        settingsStore.preferredLanguages
+    }
+
+    private var rows: [GestureActionRowModel<DockGestureKind, DockGestureAction>] {
         DockGestureKind.allCases.map { gesture in
             GestureActionRowModel(
                 gesture: gesture,
@@ -135,7 +331,24 @@ private struct SettingsView: View {
         }
     }
 
-    private var titleBarGestureRows: [GestureActionRowModel<DockGestureKind, WindowAction>] {
+    var body: some View {
+        SettingsScrollPage {
+            DockGestureMappingsSection(
+                settingsStore: settingsStore,
+                rows: rows
+            )
+        }
+    }
+}
+
+private struct TitleBarGestureMappingsPage: View {
+    @Bindable var settingsStore: SettingsStore
+
+    private var preferredLanguages: [String] {
+        settingsStore.preferredLanguages
+    }
+
+    private var rows: [GestureActionRowModel<DockGestureKind, WindowAction>] {
         TitleBarGestureBindings.supportedGestures.map { gesture in
             GestureActionRowModel(
                 gesture: gesture,
@@ -154,7 +367,24 @@ private struct SettingsView: View {
         }
     }
 
-    private var hotKeyRows: [HotKeyRowModel] {
+    var body: some View {
+        SettingsScrollPage {
+            TitleBarGestureMappingsSection(
+                settingsStore: settingsStore,
+                rows: rows
+            )
+        }
+    }
+}
+
+private struct HotKeysSettingsPage: View {
+    @Bindable var settingsStore: SettingsStore
+
+    private var preferredLanguages: [String] {
+        settingsStore.preferredLanguages
+    }
+
+    private var rows: [HotKeyRowModel] {
         WindowAction.allCases.map { action in
             HotKeyRowModel(
                 action: action,
@@ -165,64 +395,11 @@ private struct SettingsView: View {
     }
 
     var body: some View {
-        Form {
-            GeneralSettingsSection(
-                settingsStore: settingsStore,
-                launchAtLoginController: $launchAtLoginController,
-                languageOptions: languageOptions,
-                statusItemIconOptions: statusItemIconOptions
-            )
-
-            GestureSettingsSection(
-                settingsStore: settingsStore,
-                gestureHUDStyleOptions: gestureHUDStyleOptions,
-                previewItems: gesturePreviewItems
-            )
-
-            DockGestureMappingsSection(
-                settingsStore: settingsStore,
-                rows: dockGestureRows
-            )
-
-            TitleBarGestureMappingsSection(
-                settingsStore: settingsStore,
-                rows: titleBarGestureRows
-            )
-
+        SettingsFormPage {
             HotKeysSection(
                 settingsStore: settingsStore,
-                rows: hotKeyRows
+                rows: rows
             )
-
-            Section {
-                Button {
-                    showingAdvancedSettings = true
-                } label: {
-                    Text(settingsStore.localized("settings.advanced.open"))
-                }
-            } footer: {
-                Text(settingsStore.localized("settings.advanced.footer"))
-            }
-        }
-        .formStyle(.grouped)
-        .padding(20)
-        .frame(minWidth: 500, minHeight: 520)
-        .onAppear {
-            launchAtLoginController.refresh(localize: settingsStore.localized)
-        }
-        .sheet(isPresented: $showingAdvancedSettings) {
-            AdvancedSettingsSheet(settingsStore: settingsStore)
-        }
-    }
-
-    private func languageTitle(for language: AppLanguage) -> String {
-        switch language {
-        case .system:
-            return settingsStore.localized("settings.language.system")
-        case .english:
-            return settingsStore.localized("settings.language.english")
-        case .simplifiedChinese:
-            return settingsStore.localized("settings.language.simplified_chinese")
         }
     }
 }
@@ -418,163 +595,143 @@ private struct SettingsSectionHeader: View {
     }
 }
 
-private struct AdvancedSettingsSheet: View {
+private struct AdvancedSettingsPage: View {
     @Bindable var settingsStore: SettingsStore
-    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        VStack(spacing: 0) {
-            Text(settingsStore.localized("settings.advanced.title"))
-                .font(.headline)
-                .padding(.top, 20)
-                .padding(.bottom, 12)
+        SettingsFormPage {
+            Section {
+                SensitivitySlider(
+                    label: settingsStore.localized("settings.advanced.swipe_sensitivity.label"),
+                    value: $settingsStore.swipeSensitivity,
+                    lowLabel: settingsStore.localized("settings.advanced.sensitivity.low"),
+                    highLabel: settingsStore.localized("settings.advanced.sensitivity.high")
+                )
 
-            Form {
-                Section {
-                    SensitivitySlider(
-                        label: settingsStore.localized("settings.advanced.swipe_sensitivity.label"),
-                        value: $settingsStore.swipeSensitivity,
-                        lowLabel: settingsStore.localized("settings.advanced.sensitivity.low"),
-                        highLabel: settingsStore.localized("settings.advanced.sensitivity.high")
-                    )
+                SensitivitySlider(
+                    label: settingsStore.localized("settings.advanced.pinch_sensitivity.label"),
+                    value: $settingsStore.pinchSensitivity,
+                    lowLabel: settingsStore.localized("settings.advanced.sensitivity.low"),
+                    highLabel: settingsStore.localized("settings.advanced.sensitivity.high")
+                )
 
-                    SensitivitySlider(
-                        label: settingsStore.localized("settings.advanced.pinch_sensitivity.label"),
-                        value: $settingsStore.pinchSensitivity,
-                        lowLabel: settingsStore.localized("settings.advanced.sensitivity.low"),
-                        highLabel: settingsStore.localized("settings.advanced.sensitivity.high")
-                    )
+                PixelSlider(
+                    label: settingsStore.localized("settings.advanced.title_bar_trigger_height.label"),
+                    value: $settingsStore.titleBarTriggerHeight,
+                    range: SettingsStore.minimumTitleBarTriggerHeight ... SettingsStore.maximumTitleBarTriggerHeight,
+                    step: 1
+                )
+                .disabled(settingsStore.titleBarGesturesEnabled == false)
 
-                    PixelSlider(
-                        label: settingsStore.localized("settings.advanced.title_bar_trigger_height.label"),
-                        value: $settingsStore.titleBarTriggerHeight,
-                        range: SettingsStore.minimumTitleBarTriggerHeight ... SettingsStore.maximumTitleBarTriggerHeight,
-                        step: 1
-                    )
-                    .disabled(settingsStore.titleBarGesturesEnabled == false)
-
-                    DurationSlider(
-                        label: settingsStore.localized("settings.advanced.corner_drag_hold_duration.label"),
-                        value: $settingsStore.titleBarCornerDragHoldDuration,
-                        range: SettingsStore.minimumTitleBarCornerDragHoldDuration ... SettingsStore.maximumTitleBarCornerDragHoldDuration,
-                        step: 0.1
-                    )
-                    .disabled(
-                        (settingsStore.dockGesturesEnabled == false || settingsStore.dockCornerDragSnapEnabled == false) &&
-                            (settingsStore.titleBarGesturesEnabled == false || settingsStore.titleBarCornerDragSnapEnabled == false)
-                    )
-                } header: {
-                    Text(settingsStore.localized("settings.advanced.section.sensitivity"))
-                }
-
-                Section {
-                    Toggle(
-                        settingsStore.localized("settings.advanced.reverse_cancel.enabled"),
-                        isOn: $settingsStore.reverseCancelEnabled
-                    )
-
-                    SensitivitySlider(
-                        label: settingsStore.localized("settings.advanced.reverse_cancel_sensitivity.label"),
-                        value: $settingsStore.reverseCancelSensitivity,
-                        lowLabel: settingsStore.localized("settings.advanced.sensitivity.low"),
-                        highLabel: settingsStore.localized("settings.advanced.sensitivity.high")
-                    )
-                    .disabled(settingsStore.reverseCancelEnabled == false)
-
-                    SettingsHintGroup {
-                        Text(settingsStore.localized("settings.advanced.reverse_cancel.footer"))
-                    }
-                } header: {
-                    Text(settingsStore.localized("settings.advanced.section.cancel"))
-                }
-
-                Section {
-                    Toggle(
-                        settingsStore.localized("settings.advanced.title_bar_overlay_protection.enabled"),
-                        isOn: $settingsStore.titleBarOverlayProtectionEnabled
-                    )
-                    .disabled(settingsStore.titleBarGesturesEnabled == false)
-
-                    SettingsHintGroup {
-                        Text(settingsStore.localized("settings.advanced.title_bar_overlay_protection.footer"))
-                    }
-
-                    Toggle(
-                        settingsStore.localized("settings.advanced.smart_pinch_exit_full_screen.enabled"),
-                        isOn: $settingsStore.smartPinchExitFullScreenEnabled
-                    )
-                    .disabled(settingsStore.titleBarGesturesEnabled == false)
-
-                    SettingsHintGroup {
-                        Text(settingsStore.localized("settings.advanced.smart_pinch_exit_full_screen.footer"))
-                    }
-                } header: {
-                    Text(settingsStore.localized("settings.advanced.section.other"))
-                }
-
-                Section {
-                    Toggle(
-                        settingsStore.localized("settings.debug_logging.enabled"),
-                        isOn: $settingsStore.debugLoggingEnabled
-                    )
-
-                    if settingsStore.debugLoggingEnabled {
-                        SettingsHintGroup {
-                            Text(
-                                String(
-                                    format: settingsStore.localized("settings.advanced.debug_logging.footer"),
-                                    DebugLog.logFilePathDescription
-                                )
-                            )
-                        }
-                    }
-                } header: {
-                    Text(settingsStore.localized("settings.advanced.section.logging"))
-                }
-
-                Section {
-                    Toggle(
-                        settingsStore.localized("settings.experimental.browser_tab_close.enabled"),
-                        isOn: $settingsStore.experimentalBrowserTabCloseEnabled
-                    )
-
-                    SettingsHintGroup {
-                        Text(settingsStore.localized("settings.experimental.browser_tab_close.footer"))
-                    }
-
-                    Toggle(
-                        settingsStore.localized("settings.experimental.smart_browser_tab_close.enabled"),
-                        isOn: $settingsStore.smartBrowserTabCloseEnabled
-                    )
-                    .disabled(settingsStore.experimentalBrowserTabCloseEnabled == false)
-
-                    SettingsHintGroup {
-                        Text(settingsStore.localized("settings.experimental.smart_browser_tab_close.footer"))
-                        Text(settingsStore.localized("settings.experimental.opt_in_persistence.footer"))
-                    }
-                } header: {
-                    Text(settingsStore.localized("settings.experimental.section"))
-                }
+                DurationSlider(
+                    label: settingsStore.localized("settings.advanced.corner_drag_hold_duration.label"),
+                    value: $settingsStore.titleBarCornerDragHoldDuration,
+                    range: SettingsStore.minimumTitleBarCornerDragHoldDuration ... SettingsStore.maximumTitleBarCornerDragHoldDuration,
+                    step: 0.1
+                )
+                .disabled(
+                    (settingsStore.dockGesturesEnabled == false || settingsStore.dockCornerDragSnapEnabled == false) &&
+                        (settingsStore.titleBarGesturesEnabled == false || settingsStore.titleBarCornerDragSnapEnabled == false)
+                )
+            } header: {
+                Text(settingsStore.localized("settings.advanced.section.sensitivity"))
             }
-            .formStyle(.grouped)
 
-            HStack {
+            Section {
+                Toggle(
+                    settingsStore.localized("settings.advanced.reverse_cancel.enabled"),
+                    isOn: $settingsStore.reverseCancelEnabled
+                )
+
+                SensitivitySlider(
+                    label: settingsStore.localized("settings.advanced.reverse_cancel_sensitivity.label"),
+                    value: $settingsStore.reverseCancelSensitivity,
+                    lowLabel: settingsStore.localized("settings.advanced.sensitivity.low"),
+                    highLabel: settingsStore.localized("settings.advanced.sensitivity.high")
+                )
+                .disabled(settingsStore.reverseCancelEnabled == false)
+
+                SettingsHintGroup {
+                    Text(settingsStore.localized("settings.advanced.reverse_cancel.footer"))
+                }
+            } header: {
+                Text(settingsStore.localized("settings.advanced.section.cancel"))
+            }
+
+            Section {
+                Toggle(
+                    settingsStore.localized("settings.advanced.title_bar_overlay_protection.enabled"),
+                    isOn: $settingsStore.titleBarOverlayProtectionEnabled
+                )
+                .disabled(settingsStore.titleBarGesturesEnabled == false)
+
+                SettingsHintGroup {
+                    Text(settingsStore.localized("settings.advanced.title_bar_overlay_protection.footer"))
+                }
+
+                Toggle(
+                    settingsStore.localized("settings.advanced.smart_pinch_exit_full_screen.enabled"),
+                    isOn: $settingsStore.smartPinchExitFullScreenEnabled
+                )
+                .disabled(settingsStore.titleBarGesturesEnabled == false)
+
+                SettingsHintGroup {
+                    Text(settingsStore.localized("settings.advanced.smart_pinch_exit_full_screen.footer"))
+                }
+            } header: {
+                Text(settingsStore.localized("settings.advanced.section.other"))
+            }
+
+            Section {
+                Toggle(
+                    settingsStore.localized("settings.debug_logging.enabled"),
+                    isOn: $settingsStore.debugLoggingEnabled
+                )
+
+                if settingsStore.debugLoggingEnabled {
+                    SettingsHintGroup {
+                        Text(
+                            String(
+                                format: settingsStore.localized("settings.advanced.debug_logging.footer"),
+                                DebugLog.logFilePathDescription
+                            )
+                        )
+                    }
+                }
+            } header: {
+                Text(settingsStore.localized("settings.advanced.section.logging"))
+            }
+
+            Section {
+                Toggle(
+                    settingsStore.localized("settings.experimental.browser_tab_close.enabled"),
+                    isOn: $settingsStore.experimentalBrowserTabCloseEnabled
+                )
+
+                SettingsHintGroup {
+                    Text(settingsStore.localized("settings.experimental.browser_tab_close.footer"))
+                }
+
+                Toggle(
+                    settingsStore.localized("settings.experimental.smart_browser_tab_close.enabled"),
+                    isOn: $settingsStore.smartBrowserTabCloseEnabled
+                )
+                .disabled(settingsStore.experimentalBrowserTabCloseEnabled == false)
+
+                SettingsHintGroup {
+                    Text(settingsStore.localized("settings.experimental.smart_browser_tab_close.footer"))
+                    Text(settingsStore.localized("settings.experimental.opt_in_persistence.footer"))
+                }
+            } header: {
+                Text(settingsStore.localized("settings.experimental.section"))
+            }
+
+            Section {
                 Button(settingsStore.localized("settings.advanced.reset_defaults")) {
                     settingsStore.resetAdvancedSettingsToDefaults()
                 }
-
-                Spacer()
-
-                Button(settingsStore.localized("settings.advanced.done")) {
-                    dismiss()
-                }
-                .keyboardShortcut(.defaultAction)
             }
-            .padding(.horizontal, 20)
-            .padding(.bottom, 16)
-            .padding(.top, 8)
         }
-        .frame(width: 480, height: 520)
     }
 }
 

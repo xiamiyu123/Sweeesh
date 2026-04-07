@@ -187,25 +187,12 @@ private struct SettingsDetailPage: View {
     }
 }
 
-private struct SettingsFormPage<Content: View>: View {
-    @ViewBuilder let content: Content
-
-    var body: some View {
-        Form {
-            content
-        }
-        .formStyle(.grouped)
-        .padding(20)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-}
-
-private struct SettingsScrollPage<Content: View>: View {
+private struct SettingsPageContainer<Content: View>: View {
     @ViewBuilder let content: Content
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
+            LazyVStack(alignment: .leading, spacing: 18) {
                 content
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -243,7 +230,7 @@ private struct GeneralSettingsPage: View {
     }
 
     var body: some View {
-        SettingsFormPage {
+        SettingsPageContainer {
             GeneralSettingsSection(
                 settingsStore: settingsStore,
                 launchAtLoginController: $launchAtLoginController,
@@ -296,7 +283,7 @@ private struct GestureSettingsPage: View {
     }
 
     var body: some View {
-        SettingsFormPage {
+        SettingsPageContainer {
             GestureSettingsSection(
                 settingsStore: settingsStore,
                 gestureHUDStyleOptions: gestureHUDStyleOptions,
@@ -332,7 +319,7 @@ private struct DockGestureMappingsPage: View {
     }
 
     var body: some View {
-        SettingsScrollPage {
+        SettingsPageContainer {
             DockGestureMappingsSection(
                 settingsStore: settingsStore,
                 rows: rows
@@ -368,7 +355,7 @@ private struct TitleBarGestureMappingsPage: View {
     }
 
     var body: some View {
-        SettingsScrollPage {
+        SettingsPageContainer {
             TitleBarGestureMappingsSection(
                 settingsStore: settingsStore,
                 rows: rows
@@ -395,7 +382,7 @@ private struct HotKeysSettingsPage: View {
     }
 
     var body: some View {
-        SettingsFormPage {
+        SettingsPageContainer {
             HotKeysSection(
                 settingsStore: settingsStore,
                 rows: rows
@@ -448,7 +435,7 @@ private struct GeneralSettingsSection: View {
     let statusItemIconOptions: [SettingsPickerOption<StatusItemIcon>]
 
     var body: some View {
-        Section {
+        SettingsCardSection(title: settingsStore.localized("settings.section.general")) {
             Picker(
                 settingsStore.localized("settings.language.label"),
                 selection: $settingsStore.languageOverride
@@ -500,8 +487,6 @@ private struct GeneralSettingsSection: View {
             SettingsHintGroup {
                 Text(settingsStore.localized("settings.status_item_window_actions_collapsed.footer"))
             }
-        } header: {
-            Text(settingsStore.localized("settings.section.general"))
         }
     }
 }
@@ -512,7 +497,9 @@ private struct GestureSettingsSection: View {
     let previewItems: [GestureHUDPreviewItem]
 
     var body: some View {
-        Section {
+        SettingsCardSection(
+            title: settingsStore.localized("settings.section.gestures")
+        ) {
             Toggle(
                 settingsStore.localized("settings.dock_gestures.enabled"),
                 isOn: $settingsStore.dockGesturesEnabled
@@ -562,10 +549,10 @@ private struct GestureSettingsSection: View {
             }
 
             GestureHUDPreviewStrip(items: previewItems)
-        } header: {
-            Text(settingsStore.localized("settings.section.gestures"))
         } footer: {
             Text(settingsStore.localized("settings.gestures.footer"))
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
         }
     }
 }
@@ -584,6 +571,27 @@ private struct SettingsHintGroup<Content: View>: View {
     }
 }
 
+private struct SettingsCard<Content: View>: View {
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            content
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 16)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color(nsColor: .separatorColor).opacity(0.08), lineWidth: 1)
+        )
+    }
+}
+
 private struct SettingsSectionHeader: View {
     let title: String
 
@@ -595,12 +603,49 @@ private struct SettingsSectionHeader: View {
     }
 }
 
+private struct SettingsCardSection<Content: View, Footer: View>: View {
+    let title: String
+    @ViewBuilder let content: Content
+    @ViewBuilder let footer: Footer
+
+    init(
+        title: String,
+        @ViewBuilder content: () -> Content
+    ) where Footer == EmptyView {
+        self.title = title
+        self.content = content()
+        self.footer = EmptyView()
+    }
+
+    init(
+        title: String,
+        @ViewBuilder content: () -> Content,
+        @ViewBuilder footer: () -> Footer
+    ) {
+        self.title = title
+        self.content = content()
+        self.footer = footer()
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SettingsSectionHeader(title: title)
+
+            SettingsCard {
+                content
+            }
+
+            footer
+        }
+    }
+}
+
 private struct AdvancedSettingsPage: View {
     @Bindable var settingsStore: SettingsStore
 
     var body: some View {
-        SettingsFormPage {
-            Section {
+        SettingsPageContainer {
+            SettingsCardSection(title: settingsStore.localized("settings.advanced.section.sensitivity")) {
                 SensitivitySlider(
                     label: settingsStore.localized("settings.advanced.swipe_sensitivity.label"),
                     value: $settingsStore.swipeSensitivity,
@@ -633,11 +678,9 @@ private struct AdvancedSettingsPage: View {
                     (settingsStore.dockGesturesEnabled == false || settingsStore.dockCornerDragSnapEnabled == false) &&
                         (settingsStore.titleBarGesturesEnabled == false || settingsStore.titleBarCornerDragSnapEnabled == false)
                 )
-            } header: {
-                Text(settingsStore.localized("settings.advanced.section.sensitivity"))
             }
 
-            Section {
+            SettingsCardSection(title: settingsStore.localized("settings.advanced.section.cancel")) {
                 Toggle(
                     settingsStore.localized("settings.advanced.reverse_cancel.enabled"),
                     isOn: $settingsStore.reverseCancelEnabled
@@ -654,11 +697,9 @@ private struct AdvancedSettingsPage: View {
                 SettingsHintGroup {
                     Text(settingsStore.localized("settings.advanced.reverse_cancel.footer"))
                 }
-            } header: {
-                Text(settingsStore.localized("settings.advanced.section.cancel"))
             }
 
-            Section {
+            SettingsCardSection(title: settingsStore.localized("settings.advanced.section.other")) {
                 Toggle(
                     settingsStore.localized("settings.advanced.title_bar_overlay_protection.enabled"),
                     isOn: $settingsStore.titleBarOverlayProtectionEnabled
@@ -678,11 +719,9 @@ private struct AdvancedSettingsPage: View {
                 SettingsHintGroup {
                     Text(settingsStore.localized("settings.advanced.smart_pinch_exit_full_screen.footer"))
                 }
-            } header: {
-                Text(settingsStore.localized("settings.advanced.section.other"))
             }
 
-            Section {
+            SettingsCardSection(title: settingsStore.localized("settings.advanced.section.logging")) {
                 Toggle(
                     settingsStore.localized("settings.debug_logging.enabled"),
                     isOn: $settingsStore.debugLoggingEnabled
@@ -698,11 +737,9 @@ private struct AdvancedSettingsPage: View {
                         )
                     }
                 }
-            } header: {
-                Text(settingsStore.localized("settings.advanced.section.logging"))
             }
 
-            Section {
+            SettingsCardSection(title: settingsStore.localized("settings.experimental.section")) {
                 Toggle(
                     settingsStore.localized("settings.experimental.browser_tab_close.enabled"),
                     isOn: $settingsStore.experimentalBrowserTabCloseEnabled
@@ -722,11 +759,9 @@ private struct AdvancedSettingsPage: View {
                     Text(settingsStore.localized("settings.experimental.smart_browser_tab_close.footer"))
                     Text(settingsStore.localized("settings.experimental.opt_in_persistence.footer"))
                 }
-            } header: {
-                Text(settingsStore.localized("settings.experimental.section"))
             }
 
-            Section {
+            SettingsCardSection(title: settingsStore.localized("settings.section.advanced")) {
                 Button(settingsStore.localized("settings.advanced.reset_defaults")) {
                     settingsStore.resetAdvancedSettingsToDefaults()
                 }
@@ -821,7 +856,7 @@ private struct SettingsMappingCard<Rows: View>: View {
     @ViewBuilder let rows: Rows
 
     var body: some View {
-        VStack(spacing: 0) {
+        LazyVStack(spacing: 0) {
             rows
         }
         .padding(.horizontal, 22)
@@ -942,7 +977,7 @@ private struct GestureHUDPreviewStrip: View {
     let items: [GestureHUDPreviewItem]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        LazyVStack(alignment: .leading, spacing: 10) {
             ForEach(items) { item in
                 GestureHUDPreviewCard(item: item)
             }
@@ -1112,20 +1147,20 @@ private struct HotKeysSection: View {
     let rows: [HotKeyRowModel]
 
     var body: some View {
-        Section {
-            ForEach(rows) { row in
-                HotKeyEditorRow(
-                    row: row,
-                    placeholder: settingsStore.localized("settings.shortcuts.recorder_placeholder"),
-                    onChange: { settingsStore.updateHotKeyBinding($0) }
-                )
-            }
+        SettingsCardSection(title: settingsStore.localized("settings.section.shortcuts")) {
+            LazyVStack(alignment: .leading, spacing: 12) {
+                ForEach(rows) { row in
+                    HotKeyEditorRow(
+                        row: row,
+                        placeholder: settingsStore.localized("settings.shortcuts.recorder_placeholder"),
+                        onChange: { settingsStore.updateHotKeyBinding($0) }
+                    )
+                }
 
-            Button(settingsStore.localized("settings.shortcuts.reset")) {
-                settingsStore.resetHotKeysToDefaults()
+                Button(settingsStore.localized("settings.shortcuts.reset")) {
+                    settingsStore.resetHotKeysToDefaults()
+                }
             }
-        } header: {
-            Text(settingsStore.localized("settings.section.shortcuts"))
         }
     }
 }

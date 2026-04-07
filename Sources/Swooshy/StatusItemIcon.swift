@@ -11,6 +11,9 @@ enum StatusItemIcon: String, CaseIterable, Codable, Identifiable, Sendable {
 
     var id: Self { self }
 
+    @MainActor
+    private static let imageCache = NSCache<NSString, NSImage>()
+
     init(storageValue: String?) {
         self = StatusItemIcon(rawValue: storageValue ?? "") ?? .gale
     }
@@ -47,10 +50,18 @@ enum StatusItemIcon: String, CaseIterable, Codable, Identifiable, Sendable {
         )
     }
 
+    @MainActor
     func makeImage(accessibilityDescription: String) -> NSImage? {
+        let cacheKey = "\(storageValue)|\(accessibilityDescription)" as NSString
+        if let cachedImage = Self.imageCache.object(forKey: cacheKey) {
+            return cachedImage
+        }
+
+        let image: NSImage?
+
         switch self {
         case .swooshy:
-            return StatusItemTemplateImage.loadTemplateImage(
+            image = StatusItemTemplateImage.loadTemplateImage(
                 named: "SwooshyStatusTemplate",
                 accessibilityDescription: accessibilityDescription
             )
@@ -59,14 +70,15 @@ enum StatusItemIcon: String, CaseIterable, Codable, Identifiable, Sendable {
                 named: "GaleStatusTemplate",
                 accessibilityDescription: accessibilityDescription
             ) {
+                Self.imageCache.setObject(image, forKey: cacheKey)
                 return image
             }
 
-            return StatusItemTemplateImage.makeGaleTemplateImage()
+            image = StatusItemTemplateImage.makeGaleTemplateImage()
         case .groupedWindows, .splitView, .stackedWindows, .focusedWindow, .windowGrid:
             guard
                 let symbolName,
-                let image = NSImage(
+                let generatedImage = NSImage(
                     systemSymbolName: symbolName,
                     accessibilityDescription: accessibilityDescription
                 )
@@ -74,8 +86,15 @@ enum StatusItemIcon: String, CaseIterable, Codable, Identifiable, Sendable {
                 return nil
             }
 
-            image.isTemplate = true
-            return image
+            generatedImage.isTemplate = true
+            image = generatedImage
         }
+
+        guard let image else {
+            return nil
+        }
+
+        Self.imageCache.setObject(image, forKey: cacheKey)
+        return image
     }
 }

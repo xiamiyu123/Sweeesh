@@ -28,7 +28,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             )
         }
         let permissionManager = AccessibilityPermissionManager()
-        let windowManager = WindowManager()
+        let windowRegistry = WindowRegistry()
+        let dockTargetResolver = DockTargetResolver(registry: windowRegistry)
+        let windowManager = WindowManager(
+            registry: windowRegistry,
+            dockTargetResolver: dockTargetResolver
+        )
         let layoutEngine = WindowLayoutEngine()
         let windowActionRunner = WindowActionRunner(
             windowManager: windowManager,
@@ -38,6 +43,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let gestureFeedbackPresenter = GestureFeedbackController(settingsStore: settingsStore)
         let dockGestureController = DockGestureController(
             windowManager: windowManager,
+            registry: windowRegistry,
+            dockTargetResolver: dockTargetResolver,
             layoutEngine: layoutEngine,
             alertPresenter: alertPresenter,
             gestureFeedbackPresenter: gestureFeedbackPresenter,

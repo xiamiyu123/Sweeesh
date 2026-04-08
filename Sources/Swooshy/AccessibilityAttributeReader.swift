@@ -1,11 +1,14 @@
 import AppKit
 import ApplicationServices
 import CoreGraphics
+import Darwin
 import Foundation
 
 /// Centralizes AX reads so callers can treat missing attributes, AX errors,
 /// and unexpected value types as the same "best effort" failure case.
 enum AXAttributeReader {
+    private static let windowIdentifierResolver = AXWindowIdentifierResolver()
+
     private static func attributeValue(_ attribute: CFString, from element: AXUIElement) -> CFTypeRef? {
         var value: CFTypeRef?
         let error = AXUIElementCopyAttributeValue(element, attribute, &value)
@@ -40,6 +43,22 @@ enum AXAttributeReader {
 
     static func string(_ attribute: CFString, from element: AXUIElement) -> String? {
         attributeValue(attribute, from: element) as? String
+    }
+
+    static func url(_ attribute: CFString, from element: AXUIElement) -> URL? {
+        if let url = attributeValue(attribute, from: element) as? URL {
+            return url
+        }
+
+        if let url = attributeValue(attribute, from: element) as? NSURL {
+            return url as URL
+        }
+
+        if let urlString = attributeValue(attribute, from: element) as? String {
+            return URL(string: urlString)
+        }
+
+        return nil
     }
 
     static func point(_ attribute: CFString, from element: AXUIElement) -> CGPoint? {
@@ -145,5 +164,43 @@ enum AXAttributeReader {
         }
 
         return nil
+    }
+
+    static func sameElement(_ lhs: AXUIElement, _ rhs: AXUIElement) -> Bool {
+        CFEqual(lhs as CFTypeRef, rhs as CFTypeRef)
+    }
+
+    static func windowIdentifier(of element: AXUIElement) -> CGWindowID? {
+        windowIdentifierResolver.windowIdentifier(of: element)
+    }
+}
+
+private struct AXWindowIdentifierResolver {
+    private typealias AXUIElementGetWindowFunction = @convention(c) (
+        AXUIElement,
+        UnsafeMutablePointer<UInt32>
+    ) -> AXError
+
+    private let function: AXUIElementGetWindowFunction?
+
+    init() {
+        if let symbol = dlsym(nil, "_AXUIElementGetWindow") {
+            function = unsafeBitCast(symbol, to: AXUIElementGetWindowFunction.self)
+        } else {
+            function = nil
+        }
+    }
+
+    func windowIdentifier(of element: AXUIElement) -> CGWindowID? {
+        guard let function else {
+            return nil
+        }
+
+        var windowIdentifier: UInt32 = 0
+        guard function(element, &windowIdentifier) == .success else {
+            return nil
+        }
+
+        return CGWindowID(windowIdentifier)
     }
 }

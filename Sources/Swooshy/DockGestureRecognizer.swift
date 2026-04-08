@@ -11,51 +11,13 @@ struct TrackpadTouchFrame: Equatable {
     let timestamp: TimeInterval
 }
 
-enum DockItemKind: Equatable {
-    case applicationIcon
-    case recentWindow
-}
-
-struct DockApplicationTarget: Equatable {
-    let dockItemName: String
-    let resolvedApplicationName: String
-    let processIdentifier: pid_t
-    let bundleIdentifier: String?
-    let aliases: [String]
-    let dockItemKind: DockItemKind
-
-    init(
-        dockItemName: String,
-        resolvedApplicationName: String,
-        processIdentifier: pid_t,
-        bundleIdentifier: String?,
-        aliases: [String],
-        dockItemKind: DockItemKind = .applicationIcon
-    ) {
-        self.dockItemName = dockItemName
-        self.resolvedApplicationName = resolvedApplicationName
-        self.processIdentifier = processIdentifier
-        self.bundleIdentifier = bundleIdentifier
-        self.aliases = aliases
-        self.dockItemKind = dockItemKind
-    }
-
-    var logDescription: String {
-        if let bundleIdentifier, bundleIdentifier.isEmpty == false {
-            return "\(resolvedApplicationName) [\(bundleIdentifier)]"
-        }
-
-        return resolvedApplicationName
-    }
-}
-
 enum DockGestureEvent: Equatable {
-    case swipeLeft(application: DockApplicationTarget)
-    case swipeRight(application: DockApplicationTarget)
-    case swipeDown(application: DockApplicationTarget)
-    case swipeUp(application: DockApplicationTarget)
-    case pinchIn(application: DockApplicationTarget)
-    case pinchOut(application: DockApplicationTarget)
+    case swipeLeft(application: InteractionTarget)
+    case swipeRight(application: InteractionTarget)
+    case swipeDown(application: InteractionTarget)
+    case swipeUp(application: InteractionTarget)
+    case pinchIn(application: InteractionTarget)
+    case pinchOut(application: InteractionTarget)
 
     var gesture: DockGestureKind {
         switch self {
@@ -74,7 +36,7 @@ enum DockGestureEvent: Equatable {
         }
     }
 
-    var application: DockApplicationTarget {
+    var application: InteractionTarget {
         switch self {
         case .swipeLeft(let application),
              .swipeRight(let application),
@@ -91,7 +53,7 @@ enum DockGestureEvent: Equatable {
 /// gesture to the app that was hovered when the session began.
 struct DockGestureRecognizer {
     private struct Session: Equatable {
-        let application: DockApplicationTarget
+        let application: InteractionTarget
         let startAveragePoint: CGPoint
         let startFingerDistance: CGFloat
         var hasTriggered = false
@@ -109,7 +71,7 @@ struct DockGestureRecognizer {
 
     mutating func process(
         frame: TrackpadTouchFrame,
-        hoveredApplication: DockApplicationTarget?
+        hoveredApplication: InteractionTarget?
     ) -> DockGestureEvent? {
         guard frame.touches.count == 2 else {
             session = nil
@@ -188,7 +150,7 @@ struct DockGestureRecognizer {
 
     func predictedEvent(
         frame: TrackpadTouchFrame,
-        hoveredApplication: DockApplicationTarget?
+        hoveredApplication: InteractionTarget?
     ) -> DockGestureEvent? {
         var recognizer = self
         return recognizer.process(
@@ -220,21 +182,21 @@ typealias DockSwipeEvent = DockGestureEvent
 
 enum TitleBarCornerDragEvent: Equatable {
     case began(
-        application: DockApplicationTarget,
+        application: InteractionTarget,
         startAveragePoint: CGPoint,
         currentAveragePoint: CGPoint
     )
     case changed(
-        application: DockApplicationTarget,
+        application: InteractionTarget,
         startAveragePoint: CGPoint,
         currentAveragePoint: CGPoint
     )
-    case ended(application: DockApplicationTarget)
+    case ended(application: InteractionTarget)
 }
 
 struct TitleBarCornerDragRecognizer {
     private struct Session: Equatable {
-        let application: DockApplicationTarget
+        let application: InteractionTarget
         let startAveragePoint: CGPoint
         let startTimestamp: TimeInterval
         var isActive = false
@@ -254,7 +216,7 @@ struct TitleBarCornerDragRecognizer {
 
     mutating func process(
         frame: TrackpadTouchFrame,
-        hoveredApplication: DockApplicationTarget?
+        hoveredApplication: InteractionTarget?
     ) -> TitleBarCornerDragEvent? {
         guard frame.touches.count == 2 else {
             defer { session = nil }

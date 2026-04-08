@@ -10,8 +10,8 @@ final class DockGestureController {
     private let alertPresenter: AlertPresenting
     private let gestureFeedbackPresenter: GestureFeedbackPresenting
     private let settingsStore: SettingsStore
-    private let dockProbe = DockAccessibilityProbe()
-    private let titleBarProbe = TitleBarAccessibilityProbe()
+    private let dockProbe: DockTargetResolving
+    private let titleBarProbe: TitleBarAccessibilityProbe
     private let monitor = MultitouchInputMonitor()
     private var dockRecognizer = DockGestureRecognizer()
     private var dockCornerDragRecognizer = TitleBarCornerDragRecognizer()
@@ -42,7 +42,7 @@ final class DockGestureController {
     private var pendingReleaseHighWaterMark: CGFloat?
     private var pendingReleasePinchHighWaterMark: CGFloat?
     private var titleBarSessionHoverSource: TitleBarHoverSource?
-    private var activeCornerDragApplication: DockApplicationTarget?
+    private var activeCornerDragApplication: InteractionTarget?
     private var activeCornerDragSource: CornerDragSource?
     private var activeCornerDragAction: WindowAction?
     private var activeCornerDragAnchorPoint: CGPoint?
@@ -52,7 +52,7 @@ final class DockGestureController {
     private let cornerDragTranslationThreshold: CGFloat = 0.06
 
     private enum PendingReleaseAction {
-        case dock(action: DockGestureAction, application: DockApplicationTarget)
+        case dock(action: DockGestureAction, application: InteractionTarget)
         case titleBar(
             action: WindowAction,
             event: DockGestureEvent,
@@ -61,7 +61,7 @@ final class DockGestureController {
         )
         case cornerDrag(
             action: WindowAction,
-            application: DockApplicationTarget,
+            application: InteractionTarget,
             anchorPoint: CGPoint,
             source: CornerDragSource
         )
@@ -106,12 +106,16 @@ final class DockGestureController {
 
     init(
         windowManager: WindowManager,
+        registry: WindowRegistry,
+        dockTargetResolver: DockTargetResolving,
         layoutEngine: WindowLayoutEngine,
         alertPresenter: AlertPresenting,
         gestureFeedbackPresenter: GestureFeedbackPresenting,
         settingsStore: SettingsStore
     ) {
         self.windowManager = windowManager
+        self.dockProbe = dockTargetResolver
+        self.titleBarProbe = TitleBarAccessibilityProbe(registry: registry)
         self.layoutEngine = layoutEngine
         self.alertPresenter = alertPresenter
         self.gestureFeedbackPresenter = gestureFeedbackPresenter
@@ -427,7 +431,7 @@ final class DockGestureController {
         )
         let mouseLocation = (needsDockLookup || needsTitleBarLookup) ? NSEvent.mouseLocation : nil
         let hoveredDockApplication = needsDockLookup ? mouseLocation.flatMap {
-            dockProbe.hoveredApplication(
+            dockProbe.hoveredTarget(
                 at: $0,
                 requireFrontmostOwnership: settingsStore.titleBarOverlayProtectionEnabled
             )
@@ -550,7 +554,7 @@ final class DockGestureController {
     private func handleCornerDragEvent(
         _ event: TitleBarCornerDragEvent?,
         frame: TrackpadTouchFrame,
-        hoveredApplication: DockApplicationTarget?,
+        hoveredApplication: InteractionTarget?,
         anchorPoint: CGPoint,
         source: CornerDragSource
     ) -> Bool {
@@ -641,7 +645,7 @@ final class DockGestureController {
         }
     }
 
-    private func scheduleDockGestureAction(_ action: DockGestureAction, for application: DockApplicationTarget) {
+    private func scheduleDockGestureAction(_ action: DockGestureAction, for application: InteractionTarget) {
         Task { @MainActor [weak self] in
             guard let self, self.isShuttingDown == false else { return }
 
@@ -657,13 +661,20 @@ final class DockGestureController {
         }
     }
 
-    private func performDockGestureAction(_ action: DockGestureAction, for application: DockApplicationTarget) {
+    private func performDockGestureAction(_ action: DockGestureAction, for application: InteractionTarget) {
         do {
             switch action {
             case .minimizeWindow:
                 _ = try windowManager.minimizeVisibleWindow(of: application)
             case .restoreWindow:
-                _ = try windowManager.restoreMinimizedWindow(of: application)
+                switch application {
+                case .window(let windowIdentity, _, let source) where source.isDockMinimizedItem:
+                    _ = try windowManager.restoreWindow(windowIdentity)
+                case .unresolvedDockMinimizedItem(let handle):
+                    _ = try windowManager.restoreDockItem(handle)
+                case .application(let appIdentity, _), .window(_, let appIdentity, _):
+                    _ = try windowManager.restoreMinimizedWindow(of: appIdentity)
+                }
             case .cycleWindowsForward:
                 _ = try windowManager.cycleVisibleWindows(of: application, direction: .forward)
             case .cycleWindowsBackward:
@@ -675,7 +686,10 @@ final class DockGestureController {
                     throw WindowManagerError.unableToPerformAction
                 }
             case .quitApplication:
-                _ = try windowManager.quitApplication(matching: application)
+                guard let appIdentity = application.appIdentity else {
+                    throw WindowManagerError.unableToPerformAction
+                }
+                _ = try windowManager.quitApplication(matching: appIdentity)
             case .toggleFullScreenWindow:
                 _ = try windowManager.toggleFullScreenWindow(of: application)
             case .exitFullScreenWindow:
@@ -985,7 +999,7 @@ final class DockGestureController {
     private func standardGestureWouldTrigger(
         beforeCornerDragFrom source: CornerDragSource,
         frame: TrackpadTouchFrame,
-        hoveredApplication: DockApplicationTarget?
+        hoveredApplication: InteractionTarget?
     ) -> Bool {
         switch source {
         case .dock:
@@ -1042,7 +1056,7 @@ final class DockGestureController {
             titleBarRecognizerCaptured: titleBarRecognizer.requiresHoveredApplication == false,
             dockCornerDragActive: dockCornerDragRecognizer.isActive,
             titleBarCornerDragActive: titleBarCornerDragRecognizer.isActive,
-            activeCornerDragProcessIdentifier: activeCornerDragApplication?.processIdentifier
+            activeCornerDragProcessIdentifier: activeCornerDragApplication?.processIdentifier ?? nil
         )
     }
 
@@ -1137,9 +1151,13 @@ final class DockGestureController {
             return true
         }
 
+        guard let processIdentifier = event.application.processIdentifier else {
+            return false
+        }
+
         let isBrowserTab = BrowserTabProbe.isBrowserTab(
             at: anchorPoint,
-            processIdentifier: event.application.processIdentifier
+            processIdentifier: processIdentifier
         )
 
         DebugLog.debug(
@@ -1224,7 +1242,7 @@ final class DockGestureController {
 
     private func executeCornerDragAction(
         _ action: WindowAction,
-        application: DockApplicationTarget,
+        application: InteractionTarget,
         anchorPoint: CGPoint,
         source: CornerDragSource
     ) {
@@ -1346,7 +1364,7 @@ final class DockGestureController {
 
     private func startOrUpdateSmoothDockingSession(
         for action: WindowAction,
-        application: DockApplicationTarget,
+        application: InteractionTarget,
         anchorPoint: CGPoint
     ) {
         guard action.supportsSmoothDocking else {
@@ -1476,7 +1494,7 @@ final class DockGestureController {
 
     private func shouldLogFrame(
         touchCount: Int,
-        dockHoveredApplication: DockApplicationTarget?,
+        dockHoveredApplication: InteractionTarget?,
         titleBarHoveredApplication: TitleBarHoverTarget?
     ) -> Bool {
         let hoveredApplicationLogValue = "dock=\(dockHoveredApplication?.logDescription ?? "nil")|title=\(titleBarHoveredApplication?.logDescription ?? "nil")"
@@ -1508,64 +1526,6 @@ final class DockGestureController {
         default:
             DebugLog.error(DebugLog.dock, "Dock gesture action failed: \(error.localizedDescription)")
         }
-    }
-}
-
-struct DockHoverCandidate: Equatable {
-    let target: DockApplicationTarget
-    let frame: CGRect
-}
-
-struct DockHoverSnapshot: Equatable {
-    let candidates: [DockHoverCandidate]
-    let bounds: CGRect
-
-    init(candidates: [DockHoverCandidate]) {
-        self.candidates = candidates
-        self.bounds = candidates.reduce(into: CGRect.null) { partialResult, candidate in
-            partialResult = partialResult.union(candidate.frame)
-        }
-    }
-
-    func hoveredCandidate(at point: CGPoint) -> DockHoverCandidate? {
-        candidates.first { $0.frame.contains(point) }
-    }
-
-    func containsApproximateDockRegion(_ point: CGPoint) -> Bool {
-        guard bounds.isNull == false, bounds.isEmpty == false else {
-            return false
-        }
-
-        return bounds.contains(point)
-    }
-}
-
-private struct DockRegionCandidate: Equatable {
-    let dockItemName: String
-    let frame: CGRect
-}
-
-private struct DockRegionSnapshot: Equatable {
-    let candidates: [DockRegionCandidate]
-    let bounds: CGRect
-
-    init(candidates: [DockRegionCandidate]) {
-        self.candidates = candidates
-        self.bounds = candidates.reduce(into: CGRect.null) { partialResult, candidate in
-            partialResult = partialResult.union(candidate.frame)
-        }
-    }
-
-    func hoveredCandidate(at point: CGPoint) -> DockRegionCandidate? {
-        candidates.first { $0.frame.contains(point) }
-    }
-
-    func containsApproximateDockRegion(_ point: CGPoint) -> Bool {
-        guard bounds.isNull == false, bounds.isEmpty == false else {
-            return false
-        }
-
-        return bounds.contains(point)
     }
 }
 
@@ -1748,7 +1708,7 @@ enum TitleBarHoverSource: Equatable {
 }
 
 struct TitleBarHoverTarget: Equatable {
-    let application: DockApplicationTarget
+    let application: InteractionTarget
     let source: TitleBarHoverSource
 
     var logDescription: String {
@@ -1760,27 +1720,33 @@ struct TitleBarHoverTarget: Equatable {
         }
     }
 }
+
 @MainActor
 private final class TitleBarAccessibilityProbe {
+    private let registry: WindowRegistry
     private let cacheTTL: TimeInterval = 0.2
     private let logTTL: TimeInterval = 0.4
     private var cachedHitRegion: CachedHitRegion?
     private var lastProbeLogAt = Date.distantPast
     private var lastProbeLogKey = ""
+    private var preheatTask: Task<Void, Never>?
 
     private struct CachedHitRegion {
-        let application: DockApplicationTarget
+        let application: InteractionTarget
+        let processIdentifier: pid_t
         let frame: CGRect
         let expiresAt: Date
-        let isFullScreen: Bool
     }
 
     private struct HoveredWindowTarget {
-        let application: DockApplicationTarget
+        let application: InteractionTarget
+        let processIdentifier: pid_t
         let window: AXUIElement
     }
 
-    private var preheatTask: Task<Void, Never>?
+    init(registry: WindowRegistry) {
+        self.registry = registry
+    }
 
     func clearCache() {
         preheatTask?.cancel()
@@ -1800,7 +1766,6 @@ private final class TitleBarAccessibilityProbe {
         let now = Date()
 
         if let cachedHitRegion, now < cachedHitRegion.expiresAt {
-            // 快过期时异步预热（距离过期还有 ≤0.15 秒）
             if now >= cachedHitRegion.expiresAt.addingTimeInterval(-0.15) {
                 startPreheatIfNeeded(
                     titleBarHeight: titleBarHeight,
@@ -1812,12 +1777,12 @@ private final class TitleBarAccessibilityProbe {
                 cachedHitRegion.frame.contains(appKitPoint),
                 pointBelongsToFrontmostApplication(
                     appKitPoint,
-                    processIdentifier: cachedHitRegion.application.processIdentifier,
+                    processIdentifier: cachedHitRegion.processIdentifier,
                     required: requireFrontmostOwnership
                 )
             {
                 logProbeIfNeeded(
-                    key: "hit-cache:\(cachedHitRegion.application.processIdentifier):\(Int(appKitPoint.x)):\(Int(appKitPoint.y))",
+                    key: "hit-cache:\(cachedHitRegion.processIdentifier):\(Int(appKitPoint.x)):\(Int(appKitPoint.y))",
                     message: {
                         "Pointer hit cached title-bar region for \(cachedHitRegion.application.logDescription) at \(NSStringFromPoint(appKitPoint)); frame = \(NSStringFromRect(cachedHitRegion.frame))"
                     }
@@ -1833,7 +1798,6 @@ private final class TitleBarAccessibilityProbe {
             }
         }
 
-        // 缓存过期 → 同步重建
         preheatTask?.cancel()
         preheatTask = nil
 
@@ -1847,13 +1811,12 @@ private final class TitleBarAccessibilityProbe {
             return nil
         }
 
-        let window = hoveredTarget.window
-        guard let appKitWindowFrame = appKitFrame(of: window) else {
+        guard let appKitWindowFrame = appKitFrame(of: hoveredTarget.window) else {
             cachedHitRegion = nil
             return nil
         }
 
-        let windowIsFullScreen = isFullScreen(window)
+        let windowIsFullScreen = isFullScreen(hoveredTarget.window)
         if windowIsFullScreen, !allowFullScreen {
             cachedHitRegion = nil
             return nil
@@ -1865,30 +1828,31 @@ private final class TitleBarAccessibilityProbe {
             return nil
         }
 
-        let target = hoveredTarget.application
-
         cachedHitRegion = CachedHitRegion(
-            application: target,
+            application: hoveredTarget.application,
+            processIdentifier: hoveredTarget.processIdentifier,
             frame: titleBarFrame,
-            expiresAt: now.addingTimeInterval(cacheTTL),
-            isFullScreen: windowIsFullScreen
+            expiresAt: now.addingTimeInterval(cacheTTL)
         )
 
         if
             titleBarFrame.contains(appKitPoint),
             pointBelongsToFrontmostApplication(
                 appKitPoint,
-                processIdentifier: target.processIdentifier,
+                processIdentifier: hoveredTarget.processIdentifier,
                 required: requireFrontmostOwnership
             )
         {
             logProbeIfNeeded(
-                key: "hit:\(target.processIdentifier):\(Int(titleBarFrame.minX)):\(Int(titleBarFrame.minY)):\(Int(titleBarFrame.width)):\(Int(titleBarFrame.height))",
+                key: "hit:\(hoveredTarget.processIdentifier):\(Int(titleBarFrame.minX)):\(Int(titleBarFrame.minY)):\(Int(titleBarFrame.width)):\(Int(titleBarFrame.height))",
                 message: {
-                    "Pointer hit title-bar region for \(target.logDescription) at \(NSStringFromPoint(appKitPoint)); frame = \(NSStringFromRect(titleBarFrame))"
+                    "Pointer hit title-bar region for \(hoveredTarget.application.logDescription) at \(NSStringFromPoint(appKitPoint)); frame = \(NSStringFromRect(titleBarFrame))"
                 }
             )
-            return TitleBarHoverTarget(application: target, source: .titleBar)
+            return TitleBarHoverTarget(
+                application: hoveredTarget.application.withSource(.titleBar),
+                source: .titleBar
+            )
         }
 
         if
@@ -1896,27 +1860,30 @@ private final class TitleBarAccessibilityProbe {
             windowIsFullScreen == false,
             pointBelongsToFrontmostApplication(
                 appKitPoint,
-                processIdentifier: target.processIdentifier,
+                processIdentifier: hoveredTarget.processIdentifier,
                 required: requireFrontmostOwnership
             ),
             BrowserTabProbe.isBrowserTab(
                 at: appKitPoint,
-                processIdentifier: target.processIdentifier
+                processIdentifier: hoveredTarget.processIdentifier
             )
         {
             logProbeIfNeeded(
-                key: "hit-browser-tab:\(target.processIdentifier):\(Int(appKitPoint.x)):\(Int(appKitPoint.y))",
+                key: "hit-browser-tab:\(hoveredTarget.processIdentifier):\(Int(appKitPoint.x)):\(Int(appKitPoint.y))",
                 message: {
-                    "Pointer hit browser-tab fallback region for \(target.logDescription) at \(NSStringFromPoint(appKitPoint))"
+                    "Pointer hit browser-tab fallback region for \(hoveredTarget.application.logDescription) at \(NSStringFromPoint(appKitPoint))"
                 }
             )
-            return TitleBarHoverTarget(application: target, source: .browserTabFallback)
+            return TitleBarHoverTarget(
+                application: hoveredTarget.application.withSource(.browserTabFallback),
+                source: .browserTabFallback
+            )
         }
 
         logProbeIfNeeded(
-            key: "miss:\(target.processIdentifier):\(Int(titleBarFrame.minX)):\(Int(titleBarFrame.minY)):\(Int(titleBarFrame.width)):\(Int(titleBarFrame.height))",
+            key: "miss:\(hoveredTarget.processIdentifier):\(Int(titleBarFrame.minX)):\(Int(titleBarFrame.minY)):\(Int(titleBarFrame.width)):\(Int(titleBarFrame.height))",
             message: {
-                "Pointer missed title-bar region for \(target.logDescription) at \(NSStringFromPoint(appKitPoint)); frame = \(NSStringFromRect(titleBarFrame))"
+                "Pointer missed title-bar region for \(hoveredTarget.application.logDescription) at \(NSStringFromPoint(appKitPoint)); frame = \(NSStringFromRect(titleBarFrame))"
             }
         )
         return nil
@@ -1924,26 +1891,13 @@ private final class TitleBarAccessibilityProbe {
 
     private func startPreheatIfNeeded(titleBarHeight: CGFloat, allowFullScreen: Bool) {
         guard preheatTask == nil else {
-        #if DEBUG
-            DebugLog.debug(DebugLog.windows, "TitleBar preheat skipped: task already running")
-        #endif
             return
         }
 
         preheatTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-        #if DEBUG
-            let start = Date()
-            DebugLog.debug(DebugLog.windows, "TitleBar preheat started")
-            defer {
-                let elapsed = Date().timeIntervalSince(start)
-                let elapsedText = String(format: "%.3f", elapsed)
-                DebugLog.debug(
-                    DebugLog.windows,
-                    "TitleBar preheat finished in \(elapsedText)s; hasCache = \(self.cachedHitRegion != nil)"
-                )
+            guard let self else {
+                return
             }
-        #endif
 
             let mouseLocation = NSEvent.mouseLocation
 
@@ -1959,14 +1913,13 @@ private final class TitleBarAccessibilityProbe {
                 return
             }
 
-            let window = hoveredTarget.window
-            guard let appKitWindowFrame = self.appKitFrame(of: window) else {
+            guard let appKitWindowFrame = self.appKitFrame(of: hoveredTarget.window) else {
                 self.cachedHitRegion = nil
                 self.preheatTask = nil
                 return
             }
 
-            let windowIsFullScreen = self.isFullScreen(window)
+            let windowIsFullScreen = self.isFullScreen(hoveredTarget.window)
             if windowIsFullScreen, !allowFullScreen {
                 self.cachedHitRegion = nil
                 self.preheatTask = nil
@@ -1980,12 +1933,11 @@ private final class TitleBarAccessibilityProbe {
                 return
             }
 
-            let now = Date()
             self.cachedHitRegion = CachedHitRegion(
                 application: hoveredTarget.application,
+                processIdentifier: hoveredTarget.processIdentifier,
                 frame: titleBarFrame,
-                expiresAt: now.addingTimeInterval(self.cacheTTL),
-                isFullScreen: windowIsFullScreen
+                expiresAt: Date().addingTimeInterval(self.cacheTTL)
             )
 
             self.preheatTask = nil
@@ -2008,31 +1960,26 @@ private final class TitleBarAccessibilityProbe {
             return nil
         }
 
-        let aliases = RunningApplicationIdentity.aliases(for: application)
-        let fallbackName = application.bundleIdentifier ?? "Application"
-        let resolvedName = application.localizedName ?? aliases.first ?? fallbackName
-        let target = DockApplicationTarget(
-            dockItemName: resolvedName,
-            resolvedApplicationName: resolvedName,
-            processIdentifier: application.processIdentifier,
-            bundleIdentifier: application.bundleIdentifier,
-            aliases: aliases
+        let window = AXAttributeReader.window(containing: hitElement) ?? focusedOrMainWindow(
+            in: AXUIElementCreateApplication(application.processIdentifier)
         )
-
-        if let window = windowElement(containing: hitElement) {
-            return HoveredWindowTarget(application: target, window: window)
-        }
-
-        let appElement = AXUIElementCreateApplication(application.processIdentifier)
-        guard let fallbackWindow = focusedOrMainWindow(in: appElement) else {
+        guard
+            let window,
+            let appIdentity = registry.appIdentity(forProcessIdentifier: application.processIdentifier),
+            let windowIdentity = registry.windowIdentity(for: window, in: application)
+        else {
             return nil
         }
 
-        return HoveredWindowTarget(application: target, window: fallbackWindow)
-    }
-
-    private func windowElement(containing element: AXUIElement) -> AXUIElement? {
-        AXAttributeReader.window(containing: element)
+        return HoveredWindowTarget(
+            application: .window(
+                windowIdentity,
+                app: appIdentity,
+                source: .titleBar
+            ),
+            processIdentifier: application.processIdentifier,
+            window: window
+        )
     }
 
     private func focusedOrMainWindow(in appElement: AXUIElement) -> AXUIElement? {
@@ -2076,15 +2023,15 @@ private final class TitleBarAccessibilityProbe {
         processIdentifier: pid_t,
         required: Bool
     ) -> Bool {
-        guard required else {
-            return true
+        guard required == false else {
+            guard let hitProcessIdentifier = axHitProcessIdentifier(at: appKitPoint) else {
+                return true
+            }
+
+            return hitProcessIdentifier == processIdentifier
         }
 
-        guard let hitProcessIdentifier = axHitProcessIdentifier(at: appKitPoint) else {
-            return true
-        }
-
-        return hitProcessIdentifier == processIdentifier
+        return true
     }
 
     private func isFullScreen(_ window: AXUIElement) -> Bool {
@@ -2109,527 +2056,6 @@ private func axHitProcessIdentifier(at appKitPoint: CGPoint) -> pid_t? {
     }
 
     return AXAttributeReader.processIdentifier(of: hitElement)
-}
-
-@MainActor
-private final class DockAccessibilityProbe {
-    private let candidateCacheTTL: TimeInterval = 0.25
-    private let regionCacheTTL: TimeInterval = 1.0
-    private let logTTL: TimeInterval = 0.4
-    private let applicationResolver = DockApplicationResolver()
-    private var cachedSnapshot: CachedSnapshot?
-    private var cachedHoverHit: CachedHoverHit?
-    private var preheatTask: Task<Void, Never>?
-#if DEBUG
-    private var lastProbeLogAt = Date.distantPast
-    private var lastProbeLogKey = ""
-#endif
-
-    private struct CachedSnapshot {
-        let snapshot: DockRegionSnapshot
-        let candidateExpiresAt: Date
-        let regionExpiresAt: Date
-    }
-
-    private struct CachedHoverHit {
-        let target: DockApplicationTarget
-        let frame: CGRect
-        let expiresAt: Date
-    }
-
-    func clearCache() {
-        preheatTask?.cancel()
-        preheatTask = nil
-        cachedSnapshot = nil
-        cachedHoverHit = nil
-        applicationResolver.clearCache()
-#if DEBUG
-        lastProbeLogAt = .distantPast
-        lastProbeLogKey = ""
-#endif
-    }
-
-    func hoveredApplication(
-        at appKitPoint: CGPoint,
-        requireFrontmostOwnership: Bool
-    ) -> DockApplicationTarget? {
-        let now = Date()
-
-        if
-            let cachedHoverHit,
-            now < cachedHoverHit.expiresAt,
-            cachedHoverHit.frame.contains(appKitPoint),
-            pointBelongsToDock(at: appKitPoint, required: requireFrontmostOwnership)
-        {
-            logProbeIfNeeded(
-                key: "hit-cache:\(cachedHoverHit.target.dockItemName):\(cachedHoverHit.target.processIdentifier):\(Int(appKitPoint.x)):\(Int(appKitPoint.y))",
-                message: {
-                    "Pointer hit cached Dock item \(cachedHoverHit.target.dockItemName) mapped to app \(cachedHoverHit.target.logDescription) at \(NSStringFromPoint(appKitPoint)); frame = \(NSStringFromRect(cachedHoverHit.frame)); aliases = \(cachedHoverHit.target.aliases.joined(separator: "|"))"
-                }
-            )
-            return cachedHoverHit.target
-        }
-
-        let snapshot = dockSnapshot(containing: appKitPoint, at: now)
-        guard snapshot.containsApproximateDockRegion(appKitPoint) else {
-            cachedHoverHit = nil
-            return nil
-        }
-
-        guard let hoveredCandidate = snapshot.hoveredCandidate(at: appKitPoint) else {
-            cachedHoverHit = nil
-            logMissIfNeeded(at: appKitPoint, snapshot: snapshot)
-            return nil
-        }
-
-        guard pointBelongsToDock(at: appKitPoint, required: requireFrontmostOwnership) else {
-            cachedHoverHit = nil
-            return nil
-        }
-
-        guard let target = applicationResolver.resolve(forDockItemNamed: hoveredCandidate.dockItemName) else {
-            cachedHoverHit = nil
-            return nil
-        }
-
-        cachedHoverHit = CachedHoverHit(
-            target: target,
-            frame: hoveredCandidate.frame,
-            expiresAt: now.addingTimeInterval(candidateCacheTTL)
-        )
-        logProbeIfNeeded(
-            key: "hit:\(target.dockItemName):\(target.processIdentifier):\(Int(appKitPoint.x)):\(Int(appKitPoint.y))",
-            message: {
-                "Pointer hit Dock item \(target.dockItemName) mapped to app \(target.logDescription) at \(NSStringFromPoint(appKitPoint)); frame = \(NSStringFromRect(hoveredCandidate.frame)); aliases = \(target.aliases.joined(separator: "|"))"
-            }
-        )
-        return target
-    }
-
-    private func pointBelongsToDock(at appKitPoint: CGPoint, required: Bool) -> Bool {
-        guard required else {
-            return true
-        }
-
-        guard
-            let dockProcess = NSRunningApplication.runningApplications(
-                withBundleIdentifier: "com.apple.dock"
-            ).first
-        else {
-            return true
-        }
-
-        guard let hitProcessIdentifier = axHitProcessIdentifier(at: appKitPoint) else {
-            return true
-        }
-
-        return hitProcessIdentifier == dockProcess.processIdentifier
-    }
-
-    private func dockSnapshot(containing appKitPoint: CGPoint, at now: Date) -> DockRegionSnapshot {
-        if let cachedSnapshot {
-            if now < cachedSnapshot.candidateExpiresAt {
-                // 快过期时异步预热（距离过期还有 ≤0.5 秒）
-                if now >= cachedSnapshot.candidateExpiresAt.addingTimeInterval(-0.5) {
-                    startPreheatIfNeeded()
-                }
-                return cachedSnapshot.snapshot
-            }
-
-            if
-                now < cachedSnapshot.regionExpiresAt,
-                cachedSnapshot.snapshot.containsApproximateDockRegion(appKitPoint) == false
-            {
-                // 区域缓存有效，同样检查预热
-                if now >= cachedSnapshot.candidateExpiresAt.addingTimeInterval(-0.5) {
-                    startPreheatIfNeeded()
-                }
-                return cachedSnapshot.snapshot
-            }
-        }
-
-        // 缓存过期 → 同步重建
-        preheatTask?.cancel()
-        preheatTask = nil
-        let snapshot = rebuildDockSnapshot()
-        cachedSnapshot = CachedSnapshot(
-            snapshot: snapshot,
-            candidateExpiresAt: now.addingTimeInterval(candidateCacheTTL),
-            regionExpiresAt: now.addingTimeInterval(regionCacheTTL)
-        )
-        return snapshot
-    }
-
-    private func startPreheatIfNeeded() {
-        guard preheatTask == nil else {
-        #if DEBUG
-            DebugLog.debug(DebugLog.dock, "Dock preheat skipped: task already running")
-        #endif
-            return
-        }
-
-        preheatTask = Task { @MainActor [weak self] in
-            guard let self else { return }
-        #if DEBUG
-            let start = Date()
-            DebugLog.debug(DebugLog.dock, "Dock preheat started")
-            defer {
-                let elapsed = Date().timeIntervalSince(start)
-                let elapsedText = String(format: "%.3f", elapsed)
-                DebugLog.debug(
-                    DebugLog.dock,
-                    "Dock preheat finished in \(elapsedText)s; hasSnapshot = \(self.cachedSnapshot != nil)"
-                )
-            }
-        #endif
-
-            let newSnapshot = self.rebuildDockSnapshot()
-            let now = Date()
-
-            self.cachedSnapshot = CachedSnapshot(
-                snapshot: newSnapshot,
-                candidateExpiresAt: now.addingTimeInterval(self.candidateCacheTTL),
-                regionExpiresAt: now.addingTimeInterval(self.regionCacheTTL)
-            )
-
-            self.preheatTask = nil
-        }
-    }
-
-    private func rebuildDockSnapshot() -> DockRegionSnapshot {
-        guard AXIsProcessTrusted() else { return DockRegionSnapshot(candidates: []) }
-        guard let dockProcess = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.dock").first else {
-            return DockRegionSnapshot(candidates: [])
-        }
-
-        let dockElement = AXUIElementCreateApplication(dockProcess.processIdentifier)
-        guard let dockList = AXAttributeReader.elements(kAXChildrenAttribute as CFString, from: dockElement).first else {
-            return DockRegionSnapshot(candidates: [])
-        }
-
-        let geometry = ScreenGeometry(screenFrames: NSScreen.screens.map(\.frame))
-        var candidates: [DockRegionCandidate] = []
-
-        for item in AXAttributeReader.elements(kAXChildrenAttribute as CFString, from: dockList) {
-            guard let itemName = AXAttributeReader.string(kAXTitleAttribute as CFString, from: item) else {
-                continue
-            }
-
-            guard
-                let axPosition = AXAttributeReader.point(kAXPositionAttribute as CFString, from: item),
-                let axSize = AXAttributeReader.size(kAXSizeAttribute as CFString, from: item)
-            else {
-                continue
-            }
-
-            let appKitFrame = geometry.appKitFrame(
-                fromAXFrame: CGRect(origin: axPosition, size: axSize)
-            )
-            candidates.append(DockRegionCandidate(dockItemName: itemName, frame: appKitFrame))
-        }
-
-        return DockRegionSnapshot(candidates: candidates)
-    }
-
-    private func hasAnyWindow(for application: NSRunningApplication) -> Bool {
-        let appElement = AXUIElementCreateApplication(application.processIdentifier)
-        return AXAttributeReader.elements(kAXWindowsAttribute as CFString, from: appElement).isEmpty == false
-    }
-
-    private func logProbeIfNeeded(key: String, message: () -> String) {
-#if DEBUG
-        let now = Date()
-        guard key != lastProbeLogKey || now.timeIntervalSince(lastProbeLogAt) >= logTTL else {
-            return
-        }
-
-        lastProbeLogKey = key
-        lastProbeLogAt = now
-        DebugLog.debug(DebugLog.dock, message())
-#endif
-    }
-
-    private func logMissIfNeeded(at appKitPoint: CGPoint, snapshot: DockRegionSnapshot) {
-#if DEBUG
-        var nearestCandidates: [(candidate: DockRegionCandidate, distance: CGFloat)] = []
-
-        for candidate in snapshot.candidates {
-            let distance = distanceFromPoint(appKitPoint, to: candidate.frame)
-            let insertionIndex = nearestCandidates.firstIndex { distance < $0.distance } ?? nearestCandidates.endIndex
-            nearestCandidates.insert((candidate, distance), at: insertionIndex)
-
-            if nearestCandidates.count > 4 {
-                nearestCandidates.removeLast()
-            }
-        }
-
-        let nearestKey = nearestCandidates
-            .map {
-                "\($0.candidate.dockItemName):\(Int($0.distance * 100))"
-            }
-            .joined(separator: ",")
-
-        logProbeIfNeeded(
-            key: "miss:\(nearestKey)",
-            message: {
-                let nearestSummary = nearestCandidates
-                    .map {
-                        "\($0.candidate.dockItemName){frame=\(NSStringFromRect($0.candidate.frame)), distance=\(String(format: "%.2f", $0.distance))}"
-                    }
-                    .joined(separator: ", ")
-                return "Pointer missed all Dock items at \(NSStringFromPoint(appKitPoint)); evaluated \(snapshot.candidates.count) candidates; nearest = [\(nearestSummary)]"
-            }
-        )
-#endif
-    }
-
-    private func distanceFromPoint(_ point: CGPoint, to frame: CGRect) -> CGFloat {
-        if frame.contains(point) {
-            return 0
-        }
-
-        let dx = max(frame.minX - point.x, 0, point.x - frame.maxX)
-        let dy = max(frame.minY - point.y, 0, point.y - frame.maxY)
-        return sqrt((dx * dx) + (dy * dy))
-    }
-}
-
-@MainActor
-private final class DockApplicationResolver: NSObject {
-    private struct ApplicationRecord {
-        let application: NSRunningApplication
-        let aliases: [String]
-        let normalizedAliases: [String]
-    }
-
-    private let notificationCenter: NotificationCenter
-    private var applicationRecords: [ApplicationRecord]?
-    private var minimizedWindowTitleCache: [pid_t: [String]] = [:]
-
-    init(notificationCenter: NotificationCenter = NSWorkspace.shared.notificationCenter) {
-        self.notificationCenter = notificationCenter
-        super.init()
-
-        let names: [Notification.Name] = [
-            NSWorkspace.didLaunchApplicationNotification,
-            NSWorkspace.didTerminateApplicationNotification,
-            NSWorkspace.didHideApplicationNotification,
-            NSWorkspace.didUnhideApplicationNotification,
-        ]
-
-        for name in names {
-            notificationCenter.addObserver(
-                self,
-                selector: #selector(handleWorkspaceApplicationChange),
-                name: name,
-                object: nil
-            )
-        }
-    }
-
-    @objc
-    private func handleWorkspaceApplicationChange(_ notification: Notification) {
-        clearCache()
-    }
-
-    func clearCache() {
-        applicationRecords = nil
-        minimizedWindowTitleCache = [:]
-    }
-
-    func resolve(forDockItemNamed dockItemName: String) -> DockApplicationTarget? {
-        let normalizedDockName = RunningApplicationIdentity.normalizedAlias(dockItemName)
-        guard normalizedDockName.isEmpty == false else {
-            return nil
-        }
-
-        let applicationRecords = self.applicationRecords ?? runningApplicationRecords()
-        self.applicationRecords = applicationRecords
-
-        if let exactAliasMatch = applicationRecords.first(where: { record in
-            record.normalizedAliases.contains(normalizedDockName)
-        }) {
-            return dockTarget(
-                from: exactAliasMatch,
-                dockItemName: dockItemName,
-                normalizedDockName: normalizedDockName
-            )
-        }
-
-        var bestRecord: ApplicationRecord?
-        var bestCombinedScore = Int.min
-        var qualityScoreCache: [pid_t: Int] = [:]
-
-        for record in applicationRecords {
-            let matchScore = DockItemApplicationMatcher.matchScore(
-                forNormalizedDockName: normalizedDockName,
-                normalizedAliases: record.normalizedAliases,
-                normalizedMinimizedWindowTitles: normalizedMinimizedWindowTitles(for: record.application)
-            )
-            guard matchScore > 0 else {
-                continue
-            }
-
-            let qualityScore = cachedApplicationQualityScore(
-                for: record.application,
-                qualityScoreCache: &qualityScoreCache
-            )
-            let combinedScore = (matchScore * 1_000) + qualityScore
-
-            if combinedScore > bestCombinedScore {
-                bestCombinedScore = combinedScore
-                bestRecord = record
-                continue
-            }
-
-            if
-                combinedScore == bestCombinedScore,
-                let currentBestRecord = bestRecord,
-                record.application.processIdentifier < currentBestRecord.application.processIdentifier
-            {
-                bestRecord = record
-            }
-        }
-
-        guard let bestRecord else {
-            return nil
-        }
-
-        return dockTarget(
-            from: bestRecord,
-            dockItemName: dockItemName,
-            normalizedDockName: normalizedDockName
-        )
-    }
-
-    private func dockTarget(
-        from record: ApplicationRecord,
-        dockItemName: String,
-        normalizedDockName: String
-    ) -> DockApplicationTarget {
-        let dockItemKind: DockItemKind =
-            record.normalizedAliases.contains(normalizedDockName) ? .applicationIcon : .recentWindow
-
-        return DockApplicationTarget(
-            dockItemName: dockItemName,
-            resolvedApplicationName: record.application.localizedName ?? dockItemName,
-            processIdentifier: record.application.processIdentifier,
-            bundleIdentifier: record.application.bundleIdentifier,
-            aliases: record.aliases,
-            dockItemKind: dockItemKind
-        )
-    }
-
-    private func normalizedMinimizedWindowTitles(for application: NSRunningApplication) -> [String] {
-        if let cachedTitles = minimizedWindowTitleCache[application.processIdentifier] {
-            return cachedTitles
-        }
-
-        let appElement = AXUIElementCreateApplication(application.processIdentifier)
-        let titles = AXAttributeReader
-            .elements(kAXWindowsAttribute as CFString, from: appElement)
-            .filter { AXAttributeReader.bool(kAXMinimizedAttribute as CFString, from: $0) == true }
-            .compactMap { AXAttributeReader.string(kAXTitleAttribute as CFString, from: $0) }
-            .map(RunningApplicationIdentity.normalizedAlias)
-            .filter { $0.isEmpty == false }
-
-        minimizedWindowTitleCache[application.processIdentifier] = titles
-        return titles
-    }
-
-    private func runningApplicationRecords() -> [ApplicationRecord] {
-        NSWorkspace.shared.runningApplications.compactMap { application in
-            guard application.isTerminated == false else {
-                return nil
-            }
-
-            let aliases = RunningApplicationIdentity.aliases(for: application)
-            let normalizedAliases = Array(
-                RunningApplicationIdentity.normalizedAliases(from: aliases)
-            )
-
-            return ApplicationRecord(
-                application: application,
-                aliases: aliases,
-                normalizedAliases: normalizedAliases
-            )
-        }
-    }
-
-    private func cachedApplicationQualityScore(
-        for application: NSRunningApplication,
-        qualityScoreCache: inout [pid_t: Int]
-    ) -> Int {
-        if let cachedScore = qualityScoreCache[application.processIdentifier] {
-            return cachedScore
-        }
-
-        let score = applicationQualityScore(for: application)
-        qualityScoreCache[application.processIdentifier] = score
-        return score
-    }
-
-    private func applicationQualityScore(for application: NSRunningApplication) -> Int {
-        var score = 0
-
-        switch application.activationPolicy {
-        case .regular:
-            score += 240
-        case .accessory:
-            score += 100
-        case .prohibited:
-            score += 0
-        @unknown default:
-            score += 0
-        }
-
-        if hasAnyWindow(for: application) {
-            score += 120
-        }
-
-        if application.isHidden == false {
-            score += 20
-        }
-
-        if RunningApplicationIdentity.isLikelyHelperProcess(application) {
-            score -= 220
-        }
-
-        return score
-    }
-
-    private func hasAnyWindow(for application: NSRunningApplication) -> Bool {
-        let appElement = AXUIElementCreateApplication(application.processIdentifier)
-        return AXAttributeReader.elements(kAXWindowsAttribute as CFString, from: appElement).isEmpty == false
-    }
-}
-
-enum DockItemApplicationMatcher {
-    static func matchScore(
-        forNormalizedDockName normalizedDockName: String,
-        normalizedAliases: [String],
-        normalizedMinimizedWindowTitles: [String]
-    ) -> Int {
-        guard normalizedDockName.isEmpty == false else {
-            return 0
-        }
-
-        if normalizedAliases.contains(normalizedDockName) {
-            return 4
-        }
-
-        if normalizedMinimizedWindowTitles.contains(normalizedDockName) {
-            return 3
-        }
-
-        for normalizedTitle in normalizedMinimizedWindowTitles {
-            if normalizedTitle.hasPrefix(normalizedDockName) || normalizedTitle.hasSuffix(normalizedDockName) {
-                return 2
-            }
-        }
-
-        return 0
-    }
 }
 
 final class MultitouchInputMonitor: @unchecked Sendable {
@@ -2759,7 +2185,7 @@ private final class FrameDeliveryCoalescer {
     }
 
     private let lock = NSLock()
-    private var latestFrame: TrackpadTouchFrame?
+    private var queuedFrames: [TrackpadTouchFrame] = []
     private var drainScheduled = false
     private var lastQueuedFingerCount = -1
 
@@ -2772,7 +2198,15 @@ private final class FrameDeliveryCoalescer {
         }
 
         lastQueuedFingerCount = frame.touches.count
-        latestFrame = frame
+        if let lastQueuedFrame = queuedFrames.last {
+            if sameCoalescingBucket(lhs: lastQueuedFrame, rhs: frame) {
+                queuedFrames[queuedFrames.count - 1] = frame
+            } else {
+                queuedFrames.append(frame)
+            }
+        } else {
+            queuedFrames.append(frame)
+        }
         guard drainScheduled == false else {
             return .queued
         }
@@ -2785,9 +2219,8 @@ private final class FrameDeliveryCoalescer {
         lock.lock()
         defer { lock.unlock() }
 
-        if let latestFrame {
-            self.latestFrame = nil
-            return latestFrame
+        if queuedFrames.isEmpty == false {
+            return queuedFrames.removeFirst()
         }
 
         drainScheduled = false
@@ -2798,9 +2231,20 @@ private final class FrameDeliveryCoalescer {
         lock.lock()
         defer { lock.unlock() }
 
-        latestFrame = nil
+        queuedFrames = []
         drainScheduled = false
         lastQueuedFingerCount = -1
+    }
+
+    private func sameCoalescingBucket(
+        lhs: TrackpadTouchFrame,
+        rhs: TrackpadTouchFrame
+    ) -> Bool {
+        coalescingBucket(for: lhs) == coalescingBucket(for: rhs)
+    }
+
+    private func coalescingBucket(for frame: TrackpadTouchFrame) -> Int {
+        frame.touches.count == 2 ? 2 : 0
     }
 }
 

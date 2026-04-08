@@ -236,7 +236,7 @@ final class CGWindowOrderingSnapshotCache {
     ) -> [WindowOrderDescriptor] {
         cachedDescriptors()
             .filter { $0.ownerProcessIdentifier == processIdentifier }
-            .map { WindowOrderDescriptor(title: $0.title, frame: $0.frame) }
+            .map { WindowOrderDescriptor(windowID: $0.windowID, frame: $0.frame) }
     }
 
     func reset() {
@@ -279,10 +279,10 @@ final class CGWindowOrderingSnapshotCache {
                 return nil
             }
 
-            let title = (windowInfo[kCGWindowName as String] as? String) ?? ""
+            let windowID = (windowInfo[kCGWindowNumber as String] as? NSNumber)?.uint32Value
             return CachedWindowDescriptor(
                 ownerProcessIdentifier: ownerPID.int32Value,
-                title: title,
+                windowID: windowID,
                 frame: frame.integral
             )
         }
@@ -291,7 +291,7 @@ final class CGWindowOrderingSnapshotCache {
 
 private struct CachedWindowDescriptor {
     let ownerProcessIdentifier: pid_t
-    let title: String
+    let windowID: CGWindowID?
     let frame: CGRect
 }
 
@@ -575,7 +575,9 @@ protocol WindowManaging {
 @MainActor
 /// Coordinates AX window reads, window ordering, frame application, and the
 /// higher-level actions exposed to gestures and keyboard shortcuts.
-struct WindowManager: WindowManaging {
+final class WindowManager: WindowManaging {
+    private let registry: WindowRegistry
+    private let dockTargetResolver: DockTargetResolving
     private let windowOrdering = WindowOrdering()
     private let cycleSessions = WindowCycleSessionStore()
     private let observedWindowConstraintStore = ObservedWindowConstraintStore()
@@ -588,8 +590,17 @@ struct WindowManager: WindowManaging {
         let targetAXFrame: CGRect
     }
 
+    init(
+        registry: WindowRegistry,
+        dockTargetResolver: DockTargetResolving
+    ) {
+        self.registry = registry
+        self.dockTargetResolver = dockTargetResolver
+    }
+
     func shutdown() {
         observedWindowConstraintStore.shutdown()
+        registry.shutdown()
     }
 
     func perform(_ action: WindowAction, layoutEngine: WindowLayoutEngine) throws {
@@ -721,23 +732,25 @@ struct WindowManager: WindowManaging {
 
     func perform(
         _ action: WindowAction,
-        on target: DockApplicationTarget,
+        on target: InteractionTarget,
         layoutEngine: WindowLayoutEngine,
         preferredAppKitPoint: CGPoint?
     ) throws {
-        DebugLog.info(DebugLog.windows, "Performing window action \(String(describing: action)) for Dock target \(target.logDescription)")
+        DebugLog.info(DebugLog.windows, "Performing window action \(String(describing: action)) for target \(target.logDescription)")
 
         guard AXIsProcessTrusted() else {
-            DebugLog.error(DebugLog.accessibility, "Accessibility permission missing before Dock-target action \(String(describing: action))")
+            DebugLog.error(DebugLog.accessibility, "Accessibility permission missing before target action \(String(describing: action))")
             throw WindowManagerError.accessibilityPermissionMissing
         }
 
-        let app = try runningApplication(matching: target)
-        let appElement = AXUIElementCreateApplication(app.processIdentifier)
+        let resolvedApplication = try resolvedApplicationContext(for: target)
 
         switch action {
         case .quitApplication:
-            _ = try quitApplication(matching: target)
+            guard let appIdentity = target.appIdentity else {
+                throw WindowManagerError.unableToPerformAction
+            }
+            _ = try quitApplication(matching: appIdentity)
             return
         case .minimize:
             _ = try minimizeVisibleWindow(
@@ -788,13 +801,12 @@ struct WindowManager: WindowManaging {
              .maximize,
              .center:
             let targetWindow = try preferredWindowActionTarget(
-                in: app,
-                appElement: appElement,
+                for: target,
                 preferredAppKitPoint: preferredAppKitPoint
             )
             try performSmoothDockingAction(
                 action,
-                application: app,
+                application: resolvedApplication.application,
                 window: targetWindow,
                 preferredAppKitPoint: preferredAppKitPoint,
                 bringToFront: true
@@ -835,7 +847,7 @@ struct WindowManager: WindowManaging {
 
     func previewTarget(
         for action: WindowAction,
-        on target: DockApplicationTarget,
+        on target: InteractionTarget,
         layoutEngine: WindowLayoutEngine,
         preferredAppKitPoint: CGPoint?
     ) throws -> WindowActionPreview? {
@@ -843,22 +855,20 @@ struct WindowManager: WindowManaging {
             throw WindowManagerError.unableToPerformAction
         }
 
-        let app = try runningApplication(matching: target)
-        let appElement = AXUIElementCreateApplication(app.processIdentifier)
+        let resolvedApplication = try resolvedApplicationContext(for: target)
         let targetWindow = try preferredWindowActionTarget(
-            in: app,
-            appElement: appElement,
+            for: target,
             preferredAppKitPoint: preferredAppKitPoint
         )
         let resolvedLayout = try resolvedWindowActionLayout(
             for: action,
-            application: app,
+            application: resolvedApplication.application,
             window: targetWindow,
             layoutEngine: layoutEngine,
             preferredAppKitPoint: preferredAppKitPoint
         )
         let observedObservation = observedConstraintObservation(
-            for: app,
+            for: resolvedApplication.application,
             window: targetWindow,
             action: action
         )
@@ -870,23 +880,21 @@ struct WindowManager: WindowManaging {
     }
 
     func beginSmoothDockingSession(
-        on target: DockApplicationTarget,
+        on target: InteractionTarget,
         preferredAppKitPoint: CGPoint?
     ) throws -> SmoothDockingSession {
         guard AXIsProcessTrusted() else {
             throw WindowManagerError.accessibilityPermissionMissing
         }
 
-        let app = try runningApplication(matching: target)
-        let appElement = AXUIElementCreateApplication(app.processIdentifier)
+        let resolvedApplication = try resolvedApplicationContext(for: target)
         let targetWindow = try preferredWindowActionTarget(
-            in: app,
-            appElement: appElement,
+            for: target,
             preferredAppKitPoint: preferredAppKitPoint
         )
 
         return try makeSmoothDockingSession(
-            application: app,
+            application: resolvedApplication.application,
             window: targetWindow,
             preferredAppKitPoint: preferredAppKitPoint,
             bringToFront: true
@@ -894,14 +902,13 @@ struct WindowManager: WindowManaging {
     }
 
     func preferredFullScreenWindow(
-        matching target: DockApplicationTarget,
+        matching target: InteractionTarget,
         preferredAppKitPoint: CGPoint?
     ) throws -> AXUIElement? {
-        let app = try runningApplication(matching: target)
-        let appElement = AXUIElementCreateApplication(app.processIdentifier)
+        let resolvedApplication = try resolvedApplicationContext(for: target)
         return preferredFullScreenWindow(
-            in: app,
-            appElement: appElement,
+            in: resolvedApplication.application,
+            appElement: resolvedApplication.appElement,
             preferredAppKitPoint: preferredAppKitPoint
         )
     }
@@ -1015,6 +1022,103 @@ struct WindowManager: WindowManaging {
             targetFrame: clampedTargetFrame,
             targetAXFrame: targetAXFrame
         )
+    }
+
+    private struct ResolvedApplicationContext {
+        let identity: AppIdentity
+        let application: NSRunningApplication
+        let appElement: AXUIElement
+    }
+
+    private struct ResolvedWindowContext {
+        let snapshot: WindowRecordSnapshot
+        let application: NSRunningApplication
+        let appElement: AXUIElement
+        let window: AXUIElement
+    }
+
+    private func resolvedApplicationContext(for target: InteractionTarget) throws -> ResolvedApplicationContext {
+        guard let appIdentity = target.appIdentity else {
+            throw WindowManagerError.unableToPerformAction
+        }
+
+        let preferredProcessIdentifier: pid_t?
+        if
+            let windowIdentity = target.windowIdentity,
+            let snapshot = registry.windowSnapshot(for: windowIdentity)
+        {
+            preferredProcessIdentifier = snapshot.ownerProcessIdentifier
+        } else {
+            preferredProcessIdentifier = target.processIdentifier
+        }
+
+        let application = try runningApplication(
+            matching: appIdentity,
+            preferredProcessIdentifier: preferredProcessIdentifier
+        )
+        return ResolvedApplicationContext(
+            identity: appIdentity,
+            application: application,
+            appElement: AXUIElementCreateApplication(application.processIdentifier)
+        )
+    }
+
+    private func resolvedWindowContext(for windowIdentity: WindowIdentity) throws -> ResolvedWindowContext {
+        guard let snapshot = registry.windowSnapshot(for: windowIdentity) else {
+            throw WindowManagerError.noFocusedWindow
+        }
+
+        guard let window = registry.windowElement(for: windowIdentity) else {
+            throw WindowManagerError.noFocusedWindow
+        }
+
+        let application = try runningApplication(
+            matching: snapshot.appIdentity,
+            preferredProcessIdentifier: snapshot.ownerProcessIdentifier
+        )
+        return ResolvedWindowContext(
+            snapshot: snapshot,
+            application: application,
+            appElement: AXUIElementCreateApplication(application.processIdentifier),
+            window: window
+        )
+    }
+
+    private func prefersWindowScopedAction(_ target: InteractionTarget) -> Bool {
+        switch target {
+        case .window(_, _, let source):
+            return source.isDockMinimizedItem == false
+        case .application, .unresolvedDockMinimizedItem:
+            return false
+        }
+    }
+
+    func preferredWindowActionTarget(
+        for target: InteractionTarget,
+        preferredAppKitPoint: CGPoint?
+    ) throws -> AXUIElement {
+        switch target {
+        case .window(let windowIdentity, _, let source):
+            if source.isDockMinimizedItem == false {
+                return try resolvedWindowContext(for: windowIdentity).window
+            }
+
+            let resolvedApplication = try resolvedApplicationContext(for: target)
+            return try preferredWindowActionTarget(
+                in: resolvedApplication.application,
+                appElement: resolvedApplication.appElement,
+                preferredAppKitPoint: preferredAppKitPoint
+            )
+        case .application:
+            let resolvedApplication = try resolvedApplicationContext(for: target)
+            return try preferredWindowActionTarget(
+                in: resolvedApplication.application,
+                appElement: resolvedApplication.appElement,
+                preferredAppKitPoint: preferredAppKitPoint
+            )
+        case .unresolvedDockMinimizedItem:
+            throw WindowManagerError.unableToPerformAction
+        }
     }
 
     func preferredWindowActionTarget(
@@ -1441,73 +1545,71 @@ struct WindowManager: WindowManaging {
     }
 
     func minimizeVisibleWindow(
-        of application: DockApplicationTarget,
+        of target: InteractionTarget,
         preferredAppKitPoint: CGPoint? = nil
     ) throws -> Bool {
         guard AXIsProcessTrusted() else {
             throw WindowManagerError.accessibilityPermissionMissing
         }
 
-        DebugLog.info(DebugLog.windows, "Attempting to minimize a visible window for \(application.logDescription)")
+        DebugLog.info(DebugLog.windows, "Attempting to minimize a visible window for \(target.logDescription)")
 
-        let app = try runningApplication(matching: application)
-        let appElement = AXUIElementCreateApplication(app.processIdentifier)
+        let resolvedApplication = try resolvedApplicationContext(for: target)
 
-        if let preferredAppKitPoint {
+        if preferredAppKitPoint != nil || prefersWindowScopedAction(target) {
             DebugLog.info(
                 DebugLog.windows,
-                "Attempting to minimize pointed window for \(application.logDescription) at \(NSStringFromPoint(preferredAppKitPoint))"
+                "Attempting to minimize pointed window for \(target.logDescription) at \(preferredAppKitPoint.map(NSStringFromPoint) ?? "<target-window>")"
             )
-            let targetWindow = try preferredWindowActionTarget(
-                in: app,
-                appElement: appElement,
-                preferredAppKitPoint: preferredAppKitPoint
-            )
+            let targetWindow = try preferredWindowActionTarget(for: target, preferredAppKitPoint: preferredAppKitPoint)
 
             do {
                 try setMinimized(true, for: targetWindow)
-                cycleSessions.invalidate(for: app.processIdentifier)
-                DebugLog.info(DebugLog.windows, "Minimized pointed window for \(application.logDescription)")
+                cycleSessions.invalidate(for: resolvedApplication.application.processIdentifier)
+                DebugLog.info(DebugLog.windows, "Minimized pointed window for \(target.logDescription)")
                 return true
             } catch {
                 DebugLog.debug(
                     DebugLog.windows,
-                    "Pointed window was not minimizable for \(application.logDescription): \(windowSummary([targetWindow]))"
+                    "Pointed window was not minimizable for \(target.logDescription): \(windowSummary([targetWindow]))"
                 )
                 return false
             }
         }
 
-        let windows = try orderedVisibleWindowElements(in: app, appElement: appElement)
+        let windows = try orderedVisibleWindowElements(
+            in: resolvedApplication.application,
+            appElement: resolvedApplication.appElement
+        )
         DebugLog.debug(
             DebugLog.windows,
-            "Visible window candidates for \(application.logDescription): [\(windowSummary(windows))]"
+            "Visible window candidates for \(target.logDescription): [\(windowSummary(windows))]"
         )
 
         guard windows.isEmpty == false else {
-            DebugLog.debug(DebugLog.windows, "No visible window found to minimize for \(application.logDescription)")
+            DebugLog.debug(DebugLog.windows, "No visible window found to minimize for \(target.logDescription)")
             return false
         }
 
         for targetWindow in windows {
             do {
                 try setMinimized(true, for: targetWindow)
-                cycleSessions.invalidate(for: app.processIdentifier)
-                DebugLog.info(DebugLog.windows, "Minimized one visible window for \(application.logDescription)")
+                cycleSessions.invalidate(for: resolvedApplication.application.processIdentifier)
+                DebugLog.info(DebugLog.windows, "Minimized one visible window for \(target.logDescription)")
                 return true
             } catch {
                 DebugLog.debug(
                     DebugLog.windows,
-                    "Visible window candidate was not minimizable for \(application.logDescription): \(windowSummary([targetWindow]))"
+                    "Visible window candidate was not minimizable for \(target.logDescription): \(windowSummary([targetWindow]))"
                 )
             }
         }
 
-        DebugLog.debug(DebugLog.windows, "No minimizable visible window found for \(application.logDescription)")
+        DebugLog.debug(DebugLog.windows, "No minimizable visible window found for \(target.logDescription)")
         return false
     }
 
-    func restoreMinimizedWindow(of application: DockApplicationTarget) throws -> Bool {
+    func restoreMinimizedWindow(of application: AppIdentity) throws -> Bool {
         guard AXIsProcessTrusted() else {
             throw WindowManagerError.accessibilityPermissionMissing
         }
@@ -1535,99 +1637,124 @@ struct WindowManager: WindowManaging {
         return true
     }
 
+    func restoreWindow(_ windowIdentity: WindowIdentity) throws -> Bool {
+        guard AXIsProcessTrusted() else {
+            throw WindowManagerError.accessibilityPermissionMissing
+        }
+
+        let resolvedWindow = try resolvedWindowContext(for: windowIdentity)
+        guard isMinimized(resolvedWindow.window) else {
+            try bringWindowToFront(resolvedWindow.window, for: resolvedWindow.application)
+            return true
+        }
+
+        try setMinimized(false, for: resolvedWindow.window)
+        try bringWindowToFront(resolvedWindow.window, for: resolvedWindow.application)
+        cycleSessions.invalidate(for: resolvedWindow.application.processIdentifier)
+        return true
+    }
+
+    func restoreDockItem(_ handle: DockMinimizedItemHandle) throws -> Bool {
+        guard AXIsProcessTrusted() else {
+            throw WindowManagerError.accessibilityPermissionMissing
+        }
+
+        guard dockTargetResolver.pressDockMinimizedItem(handle) else {
+            throw WindowManagerError.unableToPerformAction
+        }
+
+        return true
+    }
+
     func toggleFullScreenWindow(
-        of application: DockApplicationTarget,
+        of target: InteractionTarget,
         preferredAppKitPoint: CGPoint? = nil
     ) throws -> Bool {
         guard AXIsProcessTrusted() else {
             throw WindowManagerError.accessibilityPermissionMissing
         }
 
-        DebugLog.info(DebugLog.windows, "Attempting to toggle full screen for a visible window of \(application.logDescription)")
+        DebugLog.info(DebugLog.windows, "Attempting to toggle full screen for a visible window of \(target.logDescription)")
 
-        let app = try runningApplication(matching: application)
-        let appElement = AXUIElementCreateApplication(app.processIdentifier)
+        let resolvedApplication = try resolvedApplicationContext(for: target)
 
-        if let preferredAppKitPoint {
-            let targetWindow = try preferredWindowActionTarget(
-                in: app,
-                appElement: appElement,
-                preferredAppKitPoint: preferredAppKitPoint
-            )
+        if preferredAppKitPoint != nil || prefersWindowScopedAction(target) {
+            let targetWindow = try preferredWindowActionTarget(for: target, preferredAppKitPoint: preferredAppKitPoint)
 
-            try bringWindowToFront(targetWindow, for: app)
+            try bringWindowToFront(targetWindow, for: resolvedApplication.application)
             if isFullScreen(targetWindow) == false {
                 try setFullScreen(true, for: targetWindow)
             }
 
-            cycleSessions.invalidate(for: app.processIdentifier)
-            DebugLog.info(DebugLog.windows, "Entered full screen for pointed window of \(application.logDescription)")
+            cycleSessions.invalidate(for: resolvedApplication.application.processIdentifier)
+            DebugLog.info(DebugLog.windows, "Entered full screen for pointed window of \(target.logDescription)")
             return true
         }
 
-        let windows = try orderedVisibleWindowElements(in: app, appElement: appElement)
+        let windows = try orderedVisibleWindowElements(
+            in: resolvedApplication.application,
+            appElement: resolvedApplication.appElement
+        )
         guard windows.isEmpty == false else {
-            DebugLog.debug(DebugLog.windows, "No visible window found to toggle full screen for \(application.logDescription)")
+            DebugLog.debug(DebugLog.windows, "No visible window found to toggle full screen for \(target.logDescription)")
             return false
         }
 
         for targetWindow in windows {
             do {
-                try bringWindowToFront(targetWindow, for: app)
+                try bringWindowToFront(targetWindow, for: resolvedApplication.application)
                 if isFullScreen(targetWindow) == false {
                     try setFullScreen(true, for: targetWindow)
                 }
 
-                cycleSessions.invalidate(for: app.processIdentifier)
-                DebugLog.info(DebugLog.windows, "Entered full screen for one visible window of \(application.logDescription)")
+                cycleSessions.invalidate(for: resolvedApplication.application.processIdentifier)
+                DebugLog.info(DebugLog.windows, "Entered full screen for one visible window of \(target.logDescription)")
                 return true
             } catch {
                 DebugLog.debug(
                     DebugLog.windows,
-                    "Visible window candidate could not enter full screen for \(application.logDescription): \(windowSummary([targetWindow]))"
+                    "Visible window candidate could not enter full screen for \(target.logDescription): \(windowSummary([targetWindow]))"
                 )
             }
         }
 
-        DebugLog.debug(DebugLog.windows, "No full-screen-capable visible window found for \(application.logDescription)")
+        DebugLog.debug(DebugLog.windows, "No full-screen-capable visible window found for \(target.logDescription)")
         return false
     }
 
     func exitFullScreenWindow(
-        of application: DockApplicationTarget,
+        of target: InteractionTarget,
         preferredAppKitPoint: CGPoint? = nil
     ) throws -> Bool {
         guard AXIsProcessTrusted() else {
             throw WindowManagerError.accessibilityPermissionMissing
         }
 
-        DebugLog.info(DebugLog.windows, "Attempting to exit full screen for a visible window of \(application.logDescription)")
+        DebugLog.info(DebugLog.windows, "Attempting to exit full screen for a visible window of \(target.logDescription)")
 
-        let app = try runningApplication(matching: application)
-        let appElement = AXUIElementCreateApplication(app.processIdentifier)
+        let resolvedApplication = try resolvedApplicationContext(for: target)
 
-        if let preferredAppKitPoint {
-            let targetWindow = try preferredWindowActionTarget(
-                in: app,
-                appElement: appElement,
-                preferredAppKitPoint: preferredAppKitPoint
-            )
+        if preferredAppKitPoint != nil || prefersWindowScopedAction(target) {
+            let targetWindow = try preferredWindowActionTarget(for: target, preferredAppKitPoint: preferredAppKitPoint)
 
-            try bringWindowToFront(targetWindow, for: app)
+            try bringWindowToFront(targetWindow, for: resolvedApplication.application)
             guard isFullScreen(targetWindow) else {
-                DebugLog.debug(DebugLog.windows, "Pointed window is not full screen for \(application.logDescription); nothing to exit")
+                DebugLog.debug(DebugLog.windows, "Pointed window is not full screen for \(target.logDescription); nothing to exit")
                 return false
             }
 
             try setFullScreen(false, for: targetWindow)
-            cycleSessions.invalidate(for: app.processIdentifier)
-            DebugLog.info(DebugLog.windows, "Exited full screen for pointed window of \(application.logDescription)")
+            cycleSessions.invalidate(for: resolvedApplication.application.processIdentifier)
+            DebugLog.info(DebugLog.windows, "Exited full screen for pointed window of \(target.logDescription)")
             return true
         }
 
-        let windows = try orderedVisibleWindowElements(in: app, appElement: appElement)
+        let windows = try orderedVisibleWindowElements(
+            in: resolvedApplication.application,
+            appElement: resolvedApplication.appElement
+        )
         guard windows.isEmpty == false else {
-            DebugLog.debug(DebugLog.windows, "No visible window found to exit full screen for \(application.logDescription)")
+            DebugLog.debug(DebugLog.windows, "No visible window found to exit full screen for \(target.logDescription)")
             return false
         }
 
@@ -1637,24 +1764,24 @@ struct WindowManager: WindowManaging {
             }
 
             do {
-                try bringWindowToFront(targetWindow, for: app)
+                try bringWindowToFront(targetWindow, for: resolvedApplication.application)
                 try setFullScreen(false, for: targetWindow)
-                cycleSessions.invalidate(for: app.processIdentifier)
-                DebugLog.info(DebugLog.windows, "Exited full screen for one visible window of \(application.logDescription)")
+                cycleSessions.invalidate(for: resolvedApplication.application.processIdentifier)
+                DebugLog.info(DebugLog.windows, "Exited full screen for one visible window of \(target.logDescription)")
                 return true
             } catch {
                 DebugLog.debug(
                     DebugLog.windows,
-                    "Visible full screen window candidate could not exit full screen for \(application.logDescription): \(windowSummary([targetWindow]))"
+                    "Visible full screen window candidate could not exit full screen for \(target.logDescription): \(windowSummary([targetWindow]))"
                 )
             }
         }
 
-        DebugLog.debug(DebugLog.windows, "No full screen visible window found to exit for \(application.logDescription)")
+        DebugLog.debug(DebugLog.windows, "No full screen visible window found to exit for \(target.logDescription)")
         return false
     }
 
-    func closeVisibleWindow(of application: DockApplicationTarget) throws -> Bool {
+    func closeVisibleWindow(of application: AppIdentity) throws -> Bool {
         guard AXIsProcessTrusted() else {
             throw WindowManagerError.accessibilityPermissionMissing
         }
@@ -1693,74 +1820,73 @@ struct WindowManager: WindowManaging {
     }
 
     func closeWindow(
-        of application: DockApplicationTarget,
+        of target: InteractionTarget,
         preferredAppKitPoint: CGPoint?
     ) throws -> Bool {
         guard AXIsProcessTrusted() else {
             throw WindowManagerError.accessibilityPermissionMissing
         }
 
-        let app = try runningApplication(matching: application)
-        let appElement = AXUIElementCreateApplication(app.processIdentifier)
-
-        if let preferredAppKitPoint {
-            DebugLog.info(
-                DebugLog.windows,
-                "Attempting to close pointed window for \(application.logDescription) at \(NSStringFromPoint(preferredAppKitPoint))"
-            )
-            let targetWindow = try preferredWindowActionTarget(
-                in: app,
-                appElement: appElement,
-                preferredAppKitPoint: preferredAppKitPoint
-            )
-            if try closeWindow(targetWindow, owningApp: app) {
-                cycleSessions.invalidate(for: app.processIdentifier)
-                DebugLog.info(DebugLog.windows, "Closed pointed window for \(application.logDescription)")
-                return true
-            }
-            DebugLog.debug(DebugLog.windows, "Pointed window was not closeable for \(application.logDescription)")
+        switch target {
+        case .unresolvedDockMinimizedItem:
             return false
-        }
+        case .window(let windowIdentity, _, let source) where source.isDockMinimizedItem && preferredAppKitPoint == nil:
+            return try closeWindow(windowIdentity)
+        case .window(let windowIdentity, _, _) where preferredAppKitPoint == nil:
+            return try closeWindow(windowIdentity)
+        case .application(let application, _):
+            if let preferredAppKitPoint {
+                let app = try runningApplication(matching: application)
+                let appElement = AXUIElementCreateApplication(app.processIdentifier)
+                DebugLog.info(
+                    DebugLog.windows,
+                    "Attempting to close pointed window for \(application.logDescription) at \(NSStringFromPoint(preferredAppKitPoint))"
+                )
+                let targetWindow = try preferredWindowActionTarget(
+                    in: app,
+                    appElement: appElement,
+                    preferredAppKitPoint: preferredAppKitPoint
+                )
+                if try closeWindow(targetWindow, owningApp: app) {
+                    cycleSessions.invalidate(for: app.processIdentifier)
+                    DebugLog.info(DebugLog.windows, "Closed pointed window for \(application.logDescription)")
+                    return true
+                }
+                DebugLog.debug(DebugLog.windows, "Pointed window was not closeable for \(application.logDescription)")
+                return false
+            }
 
-        switch application.dockItemKind {
-        case .applicationIcon:
             if try closeVisibleWindow(of: application) {
                 return true
             }
             return try closeRecentWindow(of: application)
-        case .recentWindow:
-            DebugLog.info(
-                DebugLog.windows,
-                "Attempting to close Dock-referenced window for \(application.logDescription) using item \(application.dockItemName)"
-            )
-            let windows = try windowElements(in: appElement)
-            DebugLog.debug(
-                DebugLog.windows,
-                "Dock-referenced close candidates for \(application.logDescription): [\(windowSummary(windows))]"
-            )
-            guard let targetWindow = dockReferencedWindow(named: application.dockItemName, in: windows) else {
-                DebugLog.debug(
-                    DebugLog.windows,
-                    "No Dock-referenced window matched item \(application.dockItemName) for \(application.logDescription)"
+        case .window(let windowIdentity, let appIdentity, _):
+            if let preferredAppKitPoint {
+                let app = try runningApplication(matching: appIdentity, preferredProcessIdentifier: target.processIdentifier)
+                let appElement = AXUIElementCreateApplication(app.processIdentifier)
+                let targetWindow = try preferredWindowActionTarget(
+                    in: app,
+                    appElement: appElement,
+                    preferredAppKitPoint: preferredAppKitPoint
                 )
-                return false
+                return try closeWindow(targetWindow, owningApp: app)
             }
 
-            if try closeWindow(targetWindow, owningApp: app) {
-                cycleSessions.invalidate(for: app.processIdentifier)
-                DebugLog.info(DebugLog.windows, "Closed Dock-referenced window for \(application.logDescription)")
-                return true
-            }
-
-            DebugLog.debug(
-                DebugLog.windows,
-                "Dock-referenced window was not closeable for item \(application.dockItemName) in \(application.logDescription)"
-            )
-            return false
+            return try closeWindow(windowIdentity)
         }
     }
 
-    private func closeRecentWindow(of application: DockApplicationTarget) throws -> Bool {
+    func closeWindow(_ windowIdentity: WindowIdentity) throws -> Bool {
+        let resolvedWindow = try resolvedWindowContext(for: windowIdentity)
+        if try closeWindow(resolvedWindow.window, owningApp: resolvedWindow.application) {
+            cycleSessions.invalidate(for: resolvedWindow.application.processIdentifier)
+            return true
+        }
+
+        return false
+    }
+
+    private func closeRecentWindow(of application: AppIdentity) throws -> Bool {
         let app = try runningApplication(matching: application)
         let appElement = AXUIElementCreateApplication(app.processIdentifier)
         let windows = try recentWindowCandidates(in: app, appElement: appElement)
@@ -1792,7 +1918,7 @@ struct WindowManager: WindowManaging {
         return false
     }
 
-    func quitApplication(matching target: DockApplicationTarget) throws -> Bool {
+    func quitApplication(matching target: AppIdentity) throws -> Bool {
         guard AXIsProcessTrusted() else {
             throw WindowManagerError.accessibilityPermissionMissing
         }
@@ -1803,12 +1929,12 @@ struct WindowManager: WindowManaging {
         }
 
         cycleSessions.invalidate(for: app.processIdentifier)
-        DebugLog.info(DebugLog.windows, "Terminated app for Dock target \(target.logDescription)")
+        DebugLog.info(DebugLog.windows, "Terminated app for target \(target.logDescription)")
         return true
     }
 
     func cycleVisibleWindows(
-        of application: DockApplicationTarget,
+        of target: InteractionTarget,
         direction: WindowCycleDirection,
         preferredAppKitPoint: CGPoint? = nil
     ) throws -> Bool {
@@ -1818,18 +1944,17 @@ struct WindowManager: WindowManaging {
 
         DebugLog.info(
             DebugLog.windows,
-            "Attempting to cycle visible windows \(direction == .forward ? "forward" : "backward") for \(application.logDescription)"
+            "Attempting to cycle visible windows \(direction == .forward ? "forward" : "backward") for \(target.logDescription)"
         )
 
-        let app = try runningApplication(matching: application)
+        let resolvedApplication = try resolvedApplicationContext(for: target)
+        let app = resolvedApplication.application
         let appElement = AXUIElementCreateApplication(app.processIdentifier)
         let currentWindow: AXUIElement?
         if let preferredAppKitPoint {
-            currentWindow = try preferredWindowActionTarget(
-                in: app,
-                appElement: appElement,
-                preferredAppKitPoint: preferredAppKitPoint
-            )
+            currentWindow = try preferredWindowActionTarget(for: target, preferredAppKitPoint: preferredAppKitPoint)
+        } else if prefersWindowScopedAction(target) {
+            currentWindow = try preferredWindowActionTarget(for: target, preferredAppKitPoint: nil)
         } else {
             currentWindow = preferredCycleReferenceWindow(in: appElement)
         }
@@ -1843,123 +1968,30 @@ struct WindowManager: WindowManaging {
         return true
     }
 
-    func runningApplication(matching target: DockApplicationTarget) throws -> NSRunningApplication {
-        var windowPresenceCache: [pid_t: Bool] = [:]
-        var fallbackCandidates: [NSRunningApplication] = []
-
-        if
-            let app = NSRunningApplication(processIdentifier: target.processIdentifier),
-            app.isTerminated == false
-        {
-            if isPreferredWindowTargetApplication(app, windowPresenceCache: &windowPresenceCache) {
-                return app
-            }
-
-            fallbackCandidates.append(app)
-            DebugLog.debug(
-                DebugLog.windows,
-                "Discarding pid-matched app \(app.localizedName ?? "unknown") [\(app.bundleIdentifier ?? "unknown")] as primary target because it appears to be a helper without windows"
-            )
-        }
-
-        if let bundleIdentifier = target.bundleIdentifier {
-            for candidateBundleIdentifier in canonicalBundleIdentifiers(from: bundleIdentifier) {
-                if
-                    let app = NSWorkspace.shared.runningApplications.first(where: {
-                        $0.bundleIdentifier == candidateBundleIdentifier && $0.isTerminated == false
-                    })
-                {
-                    if isPreferredWindowTargetApplication(app, windowPresenceCache: &windowPresenceCache) {
-                        return app
-                    }
-
-                    fallbackCandidates.append(app)
-                }
-            }
-        }
-
-        let targetAliases = RunningApplicationIdentity.normalizedAliases(
-            from: target.aliases + [target.dockItemName, target.resolvedApplicationName]
-        )
-        let aliasCandidates = NSWorkspace.shared.runningApplications.filter { application in
-            guard application.isTerminated == false else {
-                return false
-            }
-
-            let aliases = RunningApplicationIdentity.normalizedAliases(
-                from: RunningApplicationIdentity.aliases(for: application)
-            )
-            return aliases.isDisjoint(with: targetAliases) == false
-        }
-
-        if let app = bestWindowTargetApplication(
-            from: aliasCandidates,
-            windowPresenceCache: &windowPresenceCache
+    func runningApplication(
+        matching target: AppIdentity,
+        preferredProcessIdentifier: pid_t? = nil
+    ) throws -> NSRunningApplication {
+        if let application = registry.runningApplication(
+            matching: target,
+            preferredProcessIdentifier: preferredProcessIdentifier
         ) {
-            return app
+            return application
         }
 
-        if let fallback = bestWindowTargetApplication(
-            from: fallbackCandidates,
-            windowPresenceCache: &windowPresenceCache,
-            allowHelperWithoutWindows: true
+        registry.refreshRunningApplications()
+        if let application = registry.runningApplication(
+            matching: target,
+            preferredProcessIdentifier: preferredProcessIdentifier
         ) {
-            return fallback
+            return application
         }
 
         DebugLog.error(
             DebugLog.windows,
-            "Unable to find running application for target \(target.logDescription); pid=\(target.processIdentifier); aliases=\(target.aliases.joined(separator: "|"))"
+            "Unable to find running application for target \(target.logDescription); pid=\(target.processIdentifier)"
         )
         throw WindowManagerError.noFrontmostApplication
-    }
-
-    private func canonicalBundleIdentifiers(from bundleIdentifier: String) -> [String] {
-        var candidates: [String] = []
-
-        func appendCandidate(_ candidate: String) {
-            guard candidate.isEmpty == false else { return }
-            guard candidates.contains(candidate) == false else { return }
-            candidates.append(candidate)
-        }
-
-        appendCandidate(bundleIdentifier)
-
-        if let frameworkRange = bundleIdentifier.range(of: ".framework.") {
-            appendCandidate(String(bundleIdentifier[..<frameworkRange.lowerBound]))
-        }
-
-        if let helperRange = bundleIdentifier.range(of: ".helper", options: [.caseInsensitive]) {
-            appendCandidate(String(bundleIdentifier[..<helperRange.lowerBound]))
-        }
-
-        return candidates
-    }
-
-    private func dockReferencedWindow(named dockItemName: String, in windows: [AXUIElement]) -> AXUIElement? {
-        let normalizedDockName = RunningApplicationIdentity.normalizedAlias(dockItemName)
-        guard normalizedDockName.isEmpty == false else {
-            return nil
-        }
-
-        var prefixSuffixMatch: AXUIElement?
-
-        for window in windows {
-            guard let title = AXAttributeReader.string(kAXTitleAttribute as CFString, from: window) else {
-                continue
-            }
-
-            let normalizedTitle = RunningApplicationIdentity.normalizedAlias(title)
-            if normalizedTitle == normalizedDockName {
-                return window
-            }
-
-            if normalizedTitle.hasPrefix(normalizedDockName) || normalizedTitle.hasSuffix(normalizedDockName) {
-                prefixSuffixMatch = prefixSuffixMatch ?? window
-            }
-        }
-
-        return prefixSuffixMatch
     }
 
     private func recentWindowCandidates(
@@ -2883,12 +2915,7 @@ struct WindowManager: WindowManaging {
 
     private func windowDescriptor(for window: AXUIElement) throws -> WindowOrderDescriptor {
         WindowOrderDescriptor(
-            title: readOptionalAXAttribute(
-                context: "AXTitle in windowDescriptor",
-                fallback: ""
-            ) {
-                try stringAttribute(kAXTitleAttribute as CFString, from: window)
-            },
+            windowID: AXAttributeReader.windowIdentifier(of: window),
             frame: try frame(of: window)
         )
     }

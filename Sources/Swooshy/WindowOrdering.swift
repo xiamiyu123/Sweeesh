@@ -2,14 +2,13 @@ import CoreGraphics
 import Foundation
 
 struct WindowOrderDescriptor: Equatable, Sendable {
-    let title: String
+    let windowID: CGWindowID?
     let frame: CGRect
 }
 
 struct WindowOrdering {
     private let frameTolerance: CGFloat = 12
     private let centerTolerance: CGFloat = 24
-    private let titleNormalizationLocale = Locale.autoupdatingCurrent
 
     func frontToBack<T>(
         _ windows: [T],
@@ -22,20 +21,16 @@ struct WindowOrdering {
 
         let windowDescriptors = try windows.map(descriptor)
         let allWindowIndices = Array(windows.indices)
-        let normalizedWindowTitles = windowDescriptors.map { normalizedTitle($0.title) }
-        let normalizedOrderedTitles = orderedDescriptors.map { normalizedTitle($0.title) }
         var unmatchedWindowIndexSet = Set(allWindowIndices)
         var orderedWindowIndices: [Int] = []
         orderedWindowIndices.reserveCapacity(windows.count)
 
-        for (orderedDescriptor, normalizedOrderedTitle) in zip(orderedDescriptors, normalizedOrderedTitles) {
+        for orderedDescriptor in orderedDescriptors {
             guard let bestMatch = bestMatchingWindowIndex(
                 allWindowIndices: allWindowIndices,
                 unmatchedWindowIndexSet: unmatchedWindowIndexSet,
                 windowDescriptors: windowDescriptors,
-                normalizedWindowTitles: normalizedWindowTitles,
-                orderedDescriptor: orderedDescriptor,
-                normalizedOrderedTitle: normalizedOrderedTitle
+                orderedDescriptor: orderedDescriptor
             ) else {
                 continue
             }
@@ -54,9 +49,7 @@ struct WindowOrdering {
         allWindowIndices: [Int],
         unmatchedWindowIndexSet: Set<Int>,
         windowDescriptors: [WindowOrderDescriptor],
-        normalizedWindowTitles: [String],
-        orderedDescriptor: WindowOrderDescriptor,
-        normalizedOrderedTitle: String
+        orderedDescriptor: WindowOrderDescriptor
     ) -> Int? {
         var bestMatchIndex: Int?
         var bestScore = Int.min
@@ -64,9 +57,7 @@ struct WindowOrdering {
         for windowIndex in allWindowIndices where unmatchedWindowIndexSet.contains(windowIndex) {
             guard let score = matchScore(
                 windowDescriptor: windowDescriptors[windowIndex],
-                normalizedWindowTitle: normalizedWindowTitles[windowIndex],
-                orderedDescriptor: orderedDescriptor,
-                normalizedOrderedTitle: normalizedOrderedTitle
+                orderedDescriptor: orderedDescriptor
             ) else {
                 continue
             }
@@ -82,23 +73,20 @@ struct WindowOrdering {
 
     private func matchScore(
         windowDescriptor: WindowOrderDescriptor,
-        normalizedWindowTitle: String,
-        orderedDescriptor: WindowOrderDescriptor,
-        normalizedOrderedTitle: String
+        orderedDescriptor: WindowOrderDescriptor
     ) -> Int? {
-        // Prefer a close frame match, then fall back to title plus nearby centers
-        // for apps whose AX and CG snapshots disagree by a few points.
-        let titlesMatch = normalizedWindowTitle.isEmpty == false &&
-            normalizedWindowTitle == normalizedOrderedTitle
+        if
+            let windowID = windowDescriptor.windowID,
+            let orderedWindowID = orderedDescriptor.windowID,
+            windowID == orderedWindowID
+        {
+            let delta = frameDelta(windowDescriptor.frame, orderedDescriptor.frame)
+            return 1_000_000 - Int(delta.rounded(.down))
+        }
 
         if framesAreClose(windowDescriptor.frame, orderedDescriptor.frame) {
             let delta = frameDelta(windowDescriptor.frame, orderedDescriptor.frame)
-            let titleBonus = titlesMatch ? 10_000 : 0
-            return 100_000 + titleBonus - Int(delta.rounded(.down))
-        }
-
-        guard titlesMatch else {
-            return nil
+            return 100_000 - Int(delta.rounded(.down))
         }
 
         guard sizesAreClose(windowDescriptor.frame, orderedDescriptor.frame) else {
@@ -134,15 +122,6 @@ struct WindowOrdering {
 
     private func centerDistance(_ lhs: CGRect, _ rhs: CGRect) -> CGFloat {
         hypot(lhs.midX - rhs.midX, lhs.midY - rhs.midY)
-    }
-
-    private func normalizedTitle(_ title: String) -> String {
-        title
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .folding(
-                options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive],
-                locale: titleNormalizationLocale
-            )
     }
 }
 

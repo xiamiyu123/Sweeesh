@@ -1,8 +1,30 @@
 import CoreGraphics
+import CMultitouchShim
 import Testing
 @testable import Swooshy
 
 struct DockSwipeGestureRecognizerTests {
+    private final class DeferredDrainScheduler {
+        private var operations: [@MainActor () -> Void] = []
+
+        var scheduledCount: Int {
+            operations.count
+        }
+
+        func schedule(_ operation: @escaping @MainActor () -> Void) {
+            operations.append(operation)
+        }
+
+        func runAll() {
+            while operations.isEmpty == false {
+                let operation = operations.removeFirst()
+                MainActor.assumeIsolated {
+                    operation()
+                }
+            }
+        }
+    }
+
     private func expect(_ point: CGPoint, approximatelyEquals expected: CGPoint) {
         #expect(abs(point.x - expected.x) < 0.0001)
         #expect(abs(point.y - expected.y) < 0.0001)
@@ -388,6 +410,37 @@ struct DockSwipeGestureRecognizerTests {
     }
 
     @Test
+    func titleBarCornerDragRecognizerOnlyRequiresHoveredApplicationBeforeSessionStarts() {
+        var recognizer = TitleBarCornerDragRecognizer()
+        let finder = target(dockItemName: "Finder")
+
+        #expect(recognizer.requiresHoveredApplication)
+
+        _ = recognizer.process(
+            frame: TrackpadTouchFrame(
+                touches: [
+                    TrackpadTouchSample(identifier: 1, position: CGPoint(x: 0.4, y: 0.4)),
+                    TrackpadTouchSample(identifier: 2, position: CGPoint(x: 0.55, y: 0.4)),
+                ],
+                timestamp: 0
+            ),
+            hoveredApplication: finder
+        )
+
+        #expect(recognizer.requiresHoveredApplication == false)
+
+        _ = recognizer.process(
+            frame: TrackpadTouchFrame(
+                touches: [],
+                timestamp: 0.2
+            ),
+            hoveredApplication: nil
+        )
+
+        #expect(recognizer.requiresHoveredApplication)
+    }
+
+    @Test
     func titleBarCornerDragRecognizerActivatesOnFirstDragFrameAfterHoldThreshold() {
         var recognizer = TitleBarCornerDragRecognizer()
         let finder = target(dockItemName: "Finder")
@@ -741,6 +794,59 @@ struct DockSwipeGestureRecognizerTests {
     }
 
     @Test
+    func gestureHoverLookupRequiredWhileEitherRecognizerStillNeedsHoverCapture() {
+        #expect(
+            gestureHoverLookupRequired(
+                gesturesEnabled: true,
+                standardRecognizerRequiresHoveredApplication: true,
+                cornerDragEnabled: true,
+                cornerDragRecognizerRequiresHoveredApplication: false,
+                hasActiveCornerDragApplication: false
+            )
+        )
+        #expect(
+            gestureHoverLookupRequired(
+                gesturesEnabled: true,
+                standardRecognizerRequiresHoveredApplication: false,
+                cornerDragEnabled: true,
+                cornerDragRecognizerRequiresHoveredApplication: true,
+                hasActiveCornerDragApplication: false
+            )
+        )
+        #expect(
+            gestureHoverLookupRequired(
+                gesturesEnabled: true,
+                standardRecognizerRequiresHoveredApplication: false,
+                cornerDragEnabled: true,
+                cornerDragRecognizerRequiresHoveredApplication: false,
+                hasActiveCornerDragApplication: false
+            ) == false
+        )
+    }
+
+    @Test
+    func gestureHoverLookupSkipsWorkWhenCornerDragSessionIsAlreadyActive() {
+        #expect(
+            gestureHoverLookupRequired(
+                gesturesEnabled: true,
+                standardRecognizerRequiresHoveredApplication: true,
+                cornerDragEnabled: true,
+                cornerDragRecognizerRequiresHoveredApplication: true,
+                hasActiveCornerDragApplication: true
+            ) == false
+        )
+        #expect(
+            gestureHoverLookupRequired(
+                gesturesEnabled: false,
+                standardRecognizerRequiresHoveredApplication: true,
+                cornerDragEnabled: true,
+                cornerDragRecognizerRequiresHoveredApplication: true,
+                hasActiveCornerDragApplication: false
+            ) == false
+        )
+    }
+
+    @Test
     func twoFingerReleaseStillExecutesOnLift() {
         #expect(
             gestureSessionTouchInterruption(
@@ -752,9 +858,13 @@ struct DockSwipeGestureRecognizerTests {
         )
     }
 
+    @MainActor
     @Test
     func multitouchMonitorDeliversZeroTouchFramesWhenCallbackPayloadIsNil() {
-        let monitor = MultitouchInputMonitor()
+        let scheduler = DeferredDrainScheduler()
+        let monitor = MultitouchInputMonitor(scheduleDrain: { operation in
+            scheduler.schedule(operation)
+        })
         var deliveredFrames: [TrackpadTouchFrame] = []
         monitor.onFrame = { deliveredFrames.append($0) }
 
@@ -769,8 +879,86 @@ struct DockSwipeGestureRecognizerTests {
             timestamp: 1.5
         )
 
+        scheduler.runAll()
+
         #expect(deliveredFrames.count == 1)
         #expect(deliveredFrames.first?.touches == [])
         #expect(deliveredFrames.first?.timestamp == 1.25)
+    }
+
+    @MainActor
+    @Test
+    func multitouchMonitorCoalescesBurstCallbacksIntoOneScheduledDrain() {
+        let scheduler = DeferredDrainScheduler()
+        let monitor = MultitouchInputMonitor(scheduleDrain: { operation in
+            scheduler.schedule(operation)
+        })
+        var deliveredFrames: [TrackpadTouchFrame] = []
+        monitor.onFrame = { deliveredFrames.append($0) }
+
+        withUnsafeTemporaryAllocation(of: SwooshyMTFinger.self, capacity: 2) { buffer in
+            buffer.initialize(repeating: SwooshyMTFinger())
+            buffer[0].identifier = 1
+            buffer[1].identifier = 2
+
+            buffer[0].normalized.position = SwooshyMTPoint(x: 0.20, y: 0.30)
+            buffer[1].normalized.position = SwooshyMTPoint(x: 0.40, y: 0.50)
+            monitor.receiveCallbackPayload(
+                fingers: buffer.baseAddress,
+                fingerCount: 2,
+                timestamp: 1.0
+            )
+
+            buffer[0].normalized.position = SwooshyMTPoint(x: 0.60, y: 0.70)
+            buffer[1].normalized.position = SwooshyMTPoint(x: 0.80, y: 0.90)
+            monitor.receiveCallbackPayload(
+                fingers: buffer.baseAddress,
+                fingerCount: 2,
+                timestamp: 2.0
+            )
+        }
+
+        #expect(scheduler.scheduledCount == 1)
+        #expect(deliveredFrames.isEmpty)
+
+        scheduler.runAll()
+
+        #expect(deliveredFrames.count == 1)
+        #expect(deliveredFrames.first?.timestamp == 2.0)
+        #expect(deliveredFrames.first?.touches.count == 2)
+        expect(deliveredFrames.first?.touches[0].position ?? .zero, approximatelyEquals: CGPoint(x: 0.60, y: 0.70))
+        expect(deliveredFrames.first?.touches[1].position ?? .zero, approximatelyEquals: CGPoint(x: 0.80, y: 0.90))
+    }
+
+    @MainActor
+    @Test
+    func multitouchMonitorDropsPendingFramesAfterStop() {
+        let scheduler = DeferredDrainScheduler()
+        let monitor = MultitouchInputMonitor(scheduleDrain: { operation in
+            scheduler.schedule(operation)
+        })
+        var deliveredFrames: [TrackpadTouchFrame] = []
+        monitor.onFrame = { deliveredFrames.append($0) }
+
+        withUnsafeTemporaryAllocation(of: SwooshyMTFinger.self, capacity: 2) { buffer in
+            buffer.initialize(repeating: SwooshyMTFinger())
+            buffer[0].identifier = 1
+            buffer[1].identifier = 2
+            buffer[0].normalized.position = SwooshyMTPoint(x: 0.15, y: 0.25)
+            buffer[1].normalized.position = SwooshyMTPoint(x: 0.35, y: 0.45)
+
+            monitor.receiveCallbackPayload(
+                fingers: buffer.baseAddress,
+                fingerCount: 2,
+                timestamp: 3.0
+            )
+        }
+
+        #expect(scheduler.scheduledCount == 1)
+
+        monitor.stop()
+        scheduler.runAll()
+
+        #expect(deliveredFrames.isEmpty)
     }
 }

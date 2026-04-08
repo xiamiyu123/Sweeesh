@@ -248,6 +248,10 @@ struct TitleBarCornerDragRecognizer {
         session?.isActive ?? false
     }
 
+    var requiresHoveredApplication: Bool {
+        session == nil
+    }
+
     mutating func process(
         frame: TrackpadTouchFrame,
         hoveredApplication: DockApplicationTarget?

@@ -118,7 +118,10 @@ final class DockGestureController {
         self.settingsStore = settingsStore
 
         monitor.onFrame = { [weak self] frame in
-            self?.enqueue(frame: frame)
+            MainActor.assumeIsolated {
+                guard let self, self.isShuttingDown == false else { return }
+                self.schedule(frame: frame)
+            }
         }
 
         observeSettings()
@@ -408,15 +411,20 @@ final class DockGestureController {
             return
         }
 
-        let cornerDragSessionActive = activeCornerDragApplication != nil ||
-            (dockCornerDragEnabled && dockCornerDragRecognizer.isActive) ||
-            (titleBarCornerDragEnabled && titleBarCornerDragRecognizer.isActive)
-        let needsDockLookup = dockGesturesEnabled &&
-            dockRecognizer.requiresHoveredApplication &&
-            cornerDragSessionActive == false
-        let needsTitleBarLookup = titleBarGesturesEnabled &&
-            cornerDragSessionActive == false &&
-            (titleBarRecognizer.requiresHoveredApplication || titleBarCornerDragRecognizer.isActive == false)
+        let needsDockLookup = gestureHoverLookupRequired(
+            gesturesEnabled: dockGesturesEnabled,
+            standardRecognizerRequiresHoveredApplication: dockRecognizer.requiresHoveredApplication,
+            cornerDragEnabled: dockCornerDragEnabled,
+            cornerDragRecognizerRequiresHoveredApplication: dockCornerDragRecognizer.requiresHoveredApplication,
+            hasActiveCornerDragApplication: activeCornerDragApplication != nil
+        )
+        let needsTitleBarLookup = gestureHoverLookupRequired(
+            gesturesEnabled: titleBarGesturesEnabled,
+            standardRecognizerRequiresHoveredApplication: titleBarRecognizer.requiresHoveredApplication,
+            cornerDragEnabled: titleBarCornerDragEnabled,
+            cornerDragRecognizerRequiresHoveredApplication: titleBarCornerDragRecognizer.requiresHoveredApplication,
+            hasActiveCornerDragApplication: activeCornerDragApplication != nil
+        )
         let mouseLocation = (needsDockLookup || needsTitleBarLookup) ? NSEvent.mouseLocation : nil
         let hoveredDockApplication = needsDockLookup ? mouseLocation.flatMap {
             dockProbe.hoveredApplication(
@@ -1599,6 +1607,25 @@ func gestureSessionTouchInterruption(
     return nil
 }
 
+func gestureHoverLookupRequired(
+    gesturesEnabled: Bool,
+    standardRecognizerRequiresHoveredApplication: Bool,
+    cornerDragEnabled: Bool,
+    cornerDragRecognizerRequiresHoveredApplication: Bool,
+    hasActiveCornerDragApplication: Bool
+) -> Bool {
+    guard gesturesEnabled else {
+        return false
+    }
+
+    guard hasActiveCornerDragApplication == false else {
+        return false
+    }
+
+    return standardRecognizerRequiresHoveredApplication ||
+        (cornerDragEnabled && cornerDragRecognizerRequiresHoveredApplication)
+}
+
 func cornerDragAction(
     forTouchTranslation translation: CGPoint,
     threshold: CGFloat
@@ -2529,11 +2556,22 @@ enum DockItemApplicationMatcher {
     }
 }
 
-final class MultitouchInputMonitor {
+final class MultitouchInputMonitor: @unchecked Sendable {
     var onFrame: ((TrackpadTouchFrame) -> Void)?
 
+    private let frameDeliveryCoalescer = FrameDeliveryCoalescer()
+    private let scheduleDrain: (@escaping @MainActor () -> Void) -> Void
     private var isMonitoring = false
-    private var lastDeliveredFingerCount = -1
+
+    init(
+        scheduleDrain: @escaping (@escaping @MainActor () -> Void) -> Void = { operation in
+            Task { @MainActor in
+                operation()
+            }
+        }
+    ) {
+        self.scheduleDrain = scheduleDrain
+    }
 
     var isMonitoringActive: Bool {
         isMonitoring
@@ -2544,7 +2582,7 @@ final class MultitouchInputMonitor {
 
         let context = Unmanaged.passUnretained(self).toOpaque()
         isMonitoring = SwooshyMTStartMonitoring(multitouchCallback, context)
-        lastDeliveredFingerCount = -1
+        frameDeliveryCoalescer.reset()
         if isMonitoring == false {
             DebugLog.error(DebugLog.dock, "MultitouchSupport monitoring unavailable")
         } else {
@@ -2553,10 +2591,11 @@ final class MultitouchInputMonitor {
     }
 
     func stop() {
-        guard isMonitoring else { return }
-        SwooshyMTStopMonitoring()
+        if isMonitoring {
+            SwooshyMTStopMonitoring()
+        }
         isMonitoring = false
-        lastDeliveredFingerCount = -1
+        frameDeliveryCoalescer.reset()
         DebugLog.info(DebugLog.dock, "MultitouchSupport monitoring stopped")
     }
 
@@ -2601,8 +2640,7 @@ final class MultitouchInputMonitor {
             )
         }
 
-        lastDeliveredFingerCount = fingerCount
-        onFrame?(
+        enqueueForDelivery(
             TrackpadTouchFrame(
                 touches: touches,
                 timestamp: timestamp
@@ -2611,14 +2649,82 @@ final class MultitouchInputMonitor {
     }
 
     private func deliverZeroTouchFrame(timestamp: Double) {
-        guard lastDeliveredFingerCount != 0 else { return }
-        lastDeliveredFingerCount = 0
-        onFrame?(
+        enqueueForDelivery(
             TrackpadTouchFrame(
                 touches: [],
                 timestamp: timestamp
             )
         )
+    }
+
+    private func enqueueForDelivery(_ frame: TrackpadTouchFrame) {
+        guard frameDeliveryCoalescer.enqueue(frame) == .scheduleDrain else {
+            return
+        }
+
+        scheduleDrain { [weak self] in
+            self?.drainPendingFrames()
+        }
+    }
+
+    @MainActor
+    private func drainPendingFrames() {
+        while let frame = frameDeliveryCoalescer.nextFrameForDrain() {
+            onFrame?(frame)
+        }
+    }
+}
+
+private final class FrameDeliveryCoalescer {
+    enum EnqueueResult {
+        case ignored
+        case queued
+        case scheduleDrain
+    }
+
+    private let lock = NSLock()
+    private var latestFrame: TrackpadTouchFrame?
+    private var drainScheduled = false
+    private var lastQueuedFingerCount = -1
+
+    func enqueue(_ frame: TrackpadTouchFrame) -> EnqueueResult {
+        lock.lock()
+        defer { lock.unlock() }
+
+        if frame.touches.isEmpty, lastQueuedFingerCount == 0 {
+            return .ignored
+        }
+
+        lastQueuedFingerCount = frame.touches.count
+        latestFrame = frame
+        guard drainScheduled == false else {
+            return .queued
+        }
+
+        drainScheduled = true
+        return .scheduleDrain
+    }
+
+    func nextFrameForDrain() -> TrackpadTouchFrame? {
+        lock.lock()
+        defer { lock.unlock() }
+
+        if let latestFrame {
+            self.latestFrame = nil
+            return latestFrame
+        }
+
+        drainScheduled = false
+        return nil
+    }
+
+    func reset() {
+        lock.lock()
+        defer { lock.unlock() }
+
+        latestFrame = nil
+        drainScheduled = false
+        lastQueuedFingerCount = -1
     }
 }
 

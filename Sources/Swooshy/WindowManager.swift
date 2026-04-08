@@ -208,6 +208,94 @@ private func normalizedConstraintMaximum(
 }
 
 @MainActor
+final class CGWindowOrderingSnapshotCache {
+    private struct CachedSnapshot {
+        let descriptors: [CachedWindowDescriptor]
+        let loadedAt: Date
+    }
+
+    private let ttl: TimeInterval
+    private let now: () -> Date
+    private let loadWindowInfoList: () -> [[String: Any]]?
+    private var cachedSnapshot: CachedSnapshot?
+
+    init(
+        ttl: TimeInterval = 0.1,
+        now: @escaping () -> Date = Date.init,
+        loadWindowInfoList: @escaping () -> [[String: Any]]? = {
+            CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]]
+        }
+    ) {
+        self.ttl = ttl
+        self.now = now
+        self.loadWindowInfoList = loadWindowInfoList
+    }
+
+    func frontToBackWindowDescriptors(
+        forOwnerProcessIdentifier processIdentifier: pid_t
+    ) -> [WindowOrderDescriptor] {
+        cachedDescriptors()
+            .filter { $0.ownerProcessIdentifier == processIdentifier }
+            .map { WindowOrderDescriptor(title: $0.title, frame: $0.frame) }
+    }
+
+    func reset() {
+        cachedSnapshot = nil
+    }
+
+    private func cachedDescriptors() -> [CachedWindowDescriptor] {
+        let currentDate = now()
+
+        if
+            let cachedSnapshot,
+            currentDate.timeIntervalSince(cachedSnapshot.loadedAt) < ttl
+        {
+            return cachedSnapshot.descriptors
+        }
+
+        let descriptors = loadWindowInfoList().map(Self.makeDescriptors) ?? []
+        cachedSnapshot = CachedSnapshot(
+            descriptors: descriptors,
+            loadedAt: currentDate
+        )
+        return descriptors
+    }
+
+    private static func makeDescriptors(from windowInfoList: [[String: Any]]) -> [CachedWindowDescriptor] {
+        windowInfoList.compactMap { windowInfo in
+            guard
+                let ownerPID = windowInfo[kCGWindowOwnerPID as String] as? NSNumber,
+                let boundsDictionary = windowInfo[kCGWindowBounds as String] as? NSDictionary
+            else {
+                return nil
+            }
+
+            var frame = CGRect.null
+            guard
+                CGRectMakeWithDictionaryRepresentation(boundsDictionary, &frame),
+                frame.isNull == false,
+                frame.isEmpty == false
+            else {
+                return nil
+            }
+
+            let title = (windowInfo[kCGWindowName as String] as? String) ?? ""
+            return CachedWindowDescriptor(
+                ownerProcessIdentifier: ownerPID.int32Value,
+                title: title,
+                frame: frame.integral
+            )
+        }
+    }
+}
+
+private struct CachedWindowDescriptor {
+    let ownerProcessIdentifier: pid_t
+    let title: String
+    let frame: CGRect
+}
+
+@MainActor
 final class ObservedWindowConstraintStore {
     private static let persistenceKey = "windowManager.observedWindowConstraintStore"
     private static let expirationInterval: TimeInterval = 7 * 24 * 60 * 60
@@ -491,6 +579,7 @@ struct WindowManager: WindowManaging {
     private let windowOrdering = WindowOrdering()
     private let cycleSessions = WindowCycleSessionStore()
     private let observedWindowConstraintStore = ObservedWindowConstraintStore()
+    private let windowOrderingSnapshotCache = CGWindowOrderingSnapshotCache()
 
     private struct ResolvedWindowActionLayout {
         let focusedWindow: AXUIElement
@@ -2785,41 +2874,11 @@ struct WindowManager: WindowManaging {
     private func frontToBackWindowDescriptors(
         forOwnerProcessIdentifier processIdentifier: pid_t
     ) -> [WindowOrderDescriptor] {
-        guard
-            let windowInfoList = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID)
-                as? [[String: Any]]
-        else {
-            return []
-        }
-
         // CGWindowList gives a more reliable front-to-back order than AX for
         // many apps, so we use it as an ordering hint and match back by title/frame.
-        return windowInfoList.compactMap { windowInfo in
-            guard
-                let ownerPID = windowInfo[kCGWindowOwnerPID as String] as? NSNumber,
-                ownerPID.int32Value == processIdentifier
-            else {
-                return nil
-            }
-
-            guard
-                let boundsDictionary = windowInfo[kCGWindowBounds as String] as? NSDictionary
-            else {
-                return nil
-            }
-
-            var frame = CGRect.null
-            guard
-                CGRectMakeWithDictionaryRepresentation(boundsDictionary, &frame),
-                frame.isNull == false,
-                frame.isEmpty == false
-            else {
-                return nil
-            }
-
-            let title = (windowInfo[kCGWindowName as String] as? String) ?? ""
-            return WindowOrderDescriptor(title: title, frame: frame.integral)
-        }
+        windowOrderingSnapshotCache.frontToBackWindowDescriptors(
+            forOwnerProcessIdentifier: processIdentifier
+        )
     }
 
     private func windowDescriptor(for window: AXUIElement) throws -> WindowOrderDescriptor {

@@ -1540,6 +1540,35 @@ struct DockHoverSnapshot: Equatable {
     }
 }
 
+private struct DockRegionCandidate: Equatable {
+    let dockItemName: String
+    let frame: CGRect
+}
+
+private struct DockRegionSnapshot: Equatable {
+    let candidates: [DockRegionCandidate]
+    let bounds: CGRect
+
+    init(candidates: [DockRegionCandidate]) {
+        self.candidates = candidates
+        self.bounds = candidates.reduce(into: CGRect.null) { partialResult, candidate in
+            partialResult = partialResult.union(candidate.frame)
+        }
+    }
+
+    func hoveredCandidate(at point: CGPoint) -> DockRegionCandidate? {
+        candidates.first { $0.frame.contains(point) }
+    }
+
+    func containsApproximateDockRegion(_ point: CGPoint) -> Bool {
+        guard bounds.isNull == false, bounds.isEmpty == false else {
+            return false
+        }
+
+        return bounds.contains(point)
+    }
+}
+
 enum TwoFingerTouchSequenceTransition: Equatable {
     case none
     case restarted(previousIdentifiers: [Int], currentIdentifiers: [Int])
@@ -2087,6 +2116,7 @@ private final class DockAccessibilityProbe {
     private let candidateCacheTTL: TimeInterval = 0.25
     private let regionCacheTTL: TimeInterval = 1.0
     private let logTTL: TimeInterval = 0.4
+    private let applicationResolver = DockApplicationResolver()
     private var cachedSnapshot: CachedSnapshot?
     private var cachedHoverHit: CachedHoverHit?
     private var preheatTask: Task<Void, Never>?
@@ -2096,7 +2126,7 @@ private final class DockAccessibilityProbe {
 #endif
 
     private struct CachedSnapshot {
-        let snapshot: DockHoverSnapshot
+        let snapshot: DockRegionSnapshot
         let candidateExpiresAt: Date
         let regionExpiresAt: Date
     }
@@ -2107,17 +2137,12 @@ private final class DockAccessibilityProbe {
         let expiresAt: Date
     }
 
-    private struct ApplicationRecord {
-        let application: NSRunningApplication
-        let aliases: [String]
-        let normalizedAliases: [String]
-    }
-
     func clearCache() {
         preheatTask?.cancel()
         preheatTask = nil
         cachedSnapshot = nil
         cachedHoverHit = nil
+        applicationResolver.clearCache()
 #if DEBUG
         lastProbeLogAt = .distantPast
         lastProbeLogKey = ""
@@ -2157,21 +2182,28 @@ private final class DockAccessibilityProbe {
             return nil
         }
 
+        guard pointBelongsToDock(at: appKitPoint, required: requireFrontmostOwnership) else {
+            cachedHoverHit = nil
+            return nil
+        }
+
+        guard let target = applicationResolver.resolve(forDockItemNamed: hoveredCandidate.dockItemName) else {
+            cachedHoverHit = nil
+            return nil
+        }
+
         cachedHoverHit = CachedHoverHit(
-            target: hoveredCandidate.target,
+            target: target,
             frame: hoveredCandidate.frame,
             expiresAt: now.addingTimeInterval(candidateCacheTTL)
         )
-        guard pointBelongsToDock(at: appKitPoint, required: requireFrontmostOwnership) else {
-            return nil
-        }
         logProbeIfNeeded(
-            key: "hit:\(hoveredCandidate.target.dockItemName):\(hoveredCandidate.target.processIdentifier):\(Int(appKitPoint.x)):\(Int(appKitPoint.y))",
+            key: "hit:\(target.dockItemName):\(target.processIdentifier):\(Int(appKitPoint.x)):\(Int(appKitPoint.y))",
             message: {
-                "Pointer hit Dock item \(hoveredCandidate.target.dockItemName) mapped to app \(hoveredCandidate.target.logDescription) at \(NSStringFromPoint(appKitPoint)); frame = \(NSStringFromRect(hoveredCandidate.frame)); aliases = \(hoveredCandidate.target.aliases.joined(separator: "|"))"
+                "Pointer hit Dock item \(target.dockItemName) mapped to app \(target.logDescription) at \(NSStringFromPoint(appKitPoint)); frame = \(NSStringFromRect(hoveredCandidate.frame)); aliases = \(target.aliases.joined(separator: "|"))"
             }
         )
-        return hoveredCandidate.target
+        return target
     }
 
     private func pointBelongsToDock(at appKitPoint: CGPoint, required: Bool) -> Bool {
@@ -2194,7 +2226,7 @@ private final class DockAccessibilityProbe {
         return hitProcessIdentifier == dockProcess.processIdentifier
     }
 
-    private func dockSnapshot(containing appKitPoint: CGPoint, at now: Date) -> DockHoverSnapshot {
+    private func dockSnapshot(containing appKitPoint: CGPoint, at now: Date) -> DockRegionSnapshot {
         if let cachedSnapshot {
             if now < cachedSnapshot.candidateExpiresAt {
                 // 快过期时异步预热（距离过期还有 ≤0.5 秒）
@@ -2264,36 +2296,24 @@ private final class DockAccessibilityProbe {
         }
     }
 
-    private func rebuildDockSnapshot() -> DockHoverSnapshot {
-        guard AXIsProcessTrusted() else { return DockHoverSnapshot(candidates: []) }
+    private func rebuildDockSnapshot() -> DockRegionSnapshot {
+        guard AXIsProcessTrusted() else { return DockRegionSnapshot(candidates: []) }
         guard let dockProcess = NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.dock").first else {
-            return DockHoverSnapshot(candidates: [])
+            return DockRegionSnapshot(candidates: [])
         }
 
         let dockElement = AXUIElementCreateApplication(dockProcess.processIdentifier)
         guard let dockList = AXAttributeReader.elements(kAXChildrenAttribute as CFString, from: dockElement).first else {
-            return DockHoverSnapshot(candidates: [])
+            return DockRegionSnapshot(candidates: [])
         }
 
         let geometry = ScreenGeometry(screenFrames: NSScreen.screens.map(\.frame))
-        var candidates: [DockHoverCandidate] = []
-        let applicationRecords = runningApplicationRecords()
-        var qualityScoreCache: [pid_t: Int] = [:]
+        var candidates: [DockRegionCandidate] = []
 
         for item in AXAttributeReader.elements(kAXChildrenAttribute as CFString, from: dockList) {
             guard let itemName = AXAttributeReader.string(kAXTitleAttribute as CFString, from: item) else {
                 continue
             }
-
-            guard let matchedRecord = matchingRunningApplication(
-                forDockItemNamed: itemName,
-                among: applicationRecords,
-                qualityScoreCache: &qualityScoreCache
-            ) else {
-                continue
-            }
-
-            let matchedApplication = matchedRecord.application
 
             guard
                 let axPosition = AXAttributeReader.point(kAXPositionAttribute as CFString, from: item),
@@ -2305,55 +2325,146 @@ private final class DockAccessibilityProbe {
             let appKitFrame = geometry.appKitFrame(
                 fromAXFrame: CGRect(origin: axPosition, size: axSize)
             )
-            let normalizedDockName = RunningApplicationIdentity.normalizedAlias(itemName)
-            let dockItemKind: DockItemKind =
-                matchedRecord.normalizedAliases.contains(normalizedDockName) ? .applicationIcon : .recentWindow
-            let target = DockApplicationTarget(
-                dockItemName: itemName,
-                resolvedApplicationName: matchedApplication.localizedName ?? itemName,
-                processIdentifier: matchedApplication.processIdentifier,
-                bundleIdentifier: matchedApplication.bundleIdentifier,
-                aliases: matchedRecord.aliases,
-                dockItemKind: dockItemKind
-            )
-            let candidate = DockHoverCandidate(
-                target: target,
-                frame: appKitFrame
-            )
-            candidates.append(candidate)
+            candidates.append(DockRegionCandidate(dockItemName: itemName, frame: appKitFrame))
         }
 
-        return DockHoverSnapshot(candidates: candidates)
+        return DockRegionSnapshot(candidates: candidates)
     }
 
-    private func matchingRunningApplication(
-        forDockItemNamed dockItemName: String,
-        among applicationRecords: [ApplicationRecord],
-        qualityScoreCache: inout [pid_t: Int]
-    ) -> ApplicationRecord? {
+    private func hasAnyWindow(for application: NSRunningApplication) -> Bool {
+        let appElement = AXUIElementCreateApplication(application.processIdentifier)
+        return AXAttributeReader.elements(kAXWindowsAttribute as CFString, from: appElement).isEmpty == false
+    }
+
+    private func logProbeIfNeeded(key: String, message: () -> String) {
+#if DEBUG
+        let now = Date()
+        guard key != lastProbeLogKey || now.timeIntervalSince(lastProbeLogAt) >= logTTL else {
+            return
+        }
+
+        lastProbeLogKey = key
+        lastProbeLogAt = now
+        DebugLog.debug(DebugLog.dock, message())
+#endif
+    }
+
+    private func logMissIfNeeded(at appKitPoint: CGPoint, snapshot: DockRegionSnapshot) {
+#if DEBUG
+        var nearestCandidates: [(candidate: DockRegionCandidate, distance: CGFloat)] = []
+
+        for candidate in snapshot.candidates {
+            let distance = distanceFromPoint(appKitPoint, to: candidate.frame)
+            let insertionIndex = nearestCandidates.firstIndex { distance < $0.distance } ?? nearestCandidates.endIndex
+            nearestCandidates.insert((candidate, distance), at: insertionIndex)
+
+            if nearestCandidates.count > 4 {
+                nearestCandidates.removeLast()
+            }
+        }
+
+        let nearestKey = nearestCandidates
+            .map {
+                "\($0.candidate.dockItemName):\(Int($0.distance * 100))"
+            }
+            .joined(separator: ",")
+
+        logProbeIfNeeded(
+            key: "miss:\(nearestKey)",
+            message: {
+                let nearestSummary = nearestCandidates
+                    .map {
+                        "\($0.candidate.dockItemName){frame=\(NSStringFromRect($0.candidate.frame)), distance=\(String(format: "%.2f", $0.distance))}"
+                    }
+                    .joined(separator: ", ")
+                return "Pointer missed all Dock items at \(NSStringFromPoint(appKitPoint)); evaluated \(snapshot.candidates.count) candidates; nearest = [\(nearestSummary)]"
+            }
+        )
+#endif
+    }
+
+    private func distanceFromPoint(_ point: CGPoint, to frame: CGRect) -> CGFloat {
+        if frame.contains(point) {
+            return 0
+        }
+
+        let dx = max(frame.minX - point.x, 0, point.x - frame.maxX)
+        let dy = max(frame.minY - point.y, 0, point.y - frame.maxY)
+        return sqrt((dx * dx) + (dy * dy))
+    }
+}
+
+@MainActor
+private final class DockApplicationResolver: NSObject {
+    private struct ApplicationRecord {
+        let application: NSRunningApplication
+        let aliases: [String]
+        let normalizedAliases: [String]
+    }
+
+    private let notificationCenter: NotificationCenter
+    private var applicationRecords: [ApplicationRecord]?
+    private var minimizedWindowTitleCache: [pid_t: [String]] = [:]
+
+    init(notificationCenter: NotificationCenter = NSWorkspace.shared.notificationCenter) {
+        self.notificationCenter = notificationCenter
+        super.init()
+
+        let names: [Notification.Name] = [
+            NSWorkspace.didLaunchApplicationNotification,
+            NSWorkspace.didTerminateApplicationNotification,
+            NSWorkspace.didHideApplicationNotification,
+            NSWorkspace.didUnhideApplicationNotification,
+        ]
+
+        for name in names {
+            notificationCenter.addObserver(
+                self,
+                selector: #selector(handleWorkspaceApplicationChange),
+                name: name,
+                object: nil
+            )
+        }
+    }
+
+    @objc
+    private func handleWorkspaceApplicationChange(_ notification: Notification) {
+        clearCache()
+    }
+
+    func clearCache() {
+        applicationRecords = nil
+        minimizedWindowTitleCache = [:]
+    }
+
+    func resolve(forDockItemNamed dockItemName: String) -> DockApplicationTarget? {
         let normalizedDockName = RunningApplicationIdentity.normalizedAlias(dockItemName)
         guard normalizedDockName.isEmpty == false else {
             return nil
         }
 
+        let applicationRecords = self.applicationRecords ?? runningApplicationRecords()
+        self.applicationRecords = applicationRecords
+
         if let exactAliasMatch = applicationRecords.first(where: { record in
             record.normalizedAliases.contains(normalizedDockName)
         }) {
-            return exactAliasMatch
+            return dockTarget(
+                from: exactAliasMatch,
+                dockItemName: dockItemName,
+                normalizedDockName: normalizedDockName
+            )
         }
 
         var bestRecord: ApplicationRecord?
         var bestCombinedScore = Int.min
-        var minimizedWindowTitleCache: [pid_t: [String]] = [:]
+        var qualityScoreCache: [pid_t: Int] = [:]
 
         for record in applicationRecords {
             let matchScore = DockItemApplicationMatcher.matchScore(
                 forNormalizedDockName: normalizedDockName,
                 normalizedAliases: record.normalizedAliases,
-                normalizedMinimizedWindowTitles: normalizedMinimizedWindowTitles(
-                    for: record.application,
-                    cache: &minimizedWindowTitleCache
-                )
+                normalizedMinimizedWindowTitles: normalizedMinimizedWindowTitles(for: record.application)
             )
             guard matchScore > 0 else {
                 continue
@@ -2374,21 +2485,43 @@ private final class DockAccessibilityProbe {
             if
                 combinedScore == bestCombinedScore,
                 let currentBestRecord = bestRecord,
-                // Lower pid usually represents the long-lived primary app process.
                 record.application.processIdentifier < currentBestRecord.application.processIdentifier
             {
                 bestRecord = record
             }
         }
 
-        return bestRecord
+        guard let bestRecord else {
+            return nil
+        }
+
+        return dockTarget(
+            from: bestRecord,
+            dockItemName: dockItemName,
+            normalizedDockName: normalizedDockName
+        )
     }
 
-    private func normalizedMinimizedWindowTitles(
-        for application: NSRunningApplication,
-        cache: inout [pid_t: [String]]
-    ) -> [String] {
-        if let cachedTitles = cache[application.processIdentifier] {
+    private func dockTarget(
+        from record: ApplicationRecord,
+        dockItemName: String,
+        normalizedDockName: String
+    ) -> DockApplicationTarget {
+        let dockItemKind: DockItemKind =
+            record.normalizedAliases.contains(normalizedDockName) ? .applicationIcon : .recentWindow
+
+        return DockApplicationTarget(
+            dockItemName: dockItemName,
+            resolvedApplicationName: record.application.localizedName ?? dockItemName,
+            processIdentifier: record.application.processIdentifier,
+            bundleIdentifier: record.application.bundleIdentifier,
+            aliases: record.aliases,
+            dockItemKind: dockItemKind
+        )
+    }
+
+    private func normalizedMinimizedWindowTitles(for application: NSRunningApplication) -> [String] {
+        if let cachedTitles = minimizedWindowTitleCache[application.processIdentifier] {
             return cachedTitles
         }
 
@@ -2400,7 +2533,7 @@ private final class DockAccessibilityProbe {
             .map(RunningApplicationIdentity.normalizedAlias)
             .filter { $0.isEmpty == false }
 
-        cache[application.processIdentifier] = titles
+        minimizedWindowTitleCache[application.processIdentifier] = titles
         return titles
     }
 
@@ -2468,63 +2601,6 @@ private final class DockAccessibilityProbe {
     private func hasAnyWindow(for application: NSRunningApplication) -> Bool {
         let appElement = AXUIElementCreateApplication(application.processIdentifier)
         return AXAttributeReader.elements(kAXWindowsAttribute as CFString, from: appElement).isEmpty == false
-    }
-
-    private func logProbeIfNeeded(key: String, message: () -> String) {
-#if DEBUG
-        let now = Date()
-        guard key != lastProbeLogKey || now.timeIntervalSince(lastProbeLogAt) >= logTTL else {
-            return
-        }
-
-        lastProbeLogKey = key
-        lastProbeLogAt = now
-        DebugLog.debug(DebugLog.dock, message())
-#endif
-    }
-
-    private func logMissIfNeeded(at appKitPoint: CGPoint, snapshot: DockHoverSnapshot) {
-#if DEBUG
-        var nearestCandidates: [(candidate: DockHoverCandidate, distance: CGFloat)] = []
-
-        for candidate in snapshot.candidates {
-            let distance = distanceFromPoint(appKitPoint, to: candidate.frame)
-            let insertionIndex = nearestCandidates.firstIndex { distance < $0.distance } ?? nearestCandidates.endIndex
-            nearestCandidates.insert((candidate, distance), at: insertionIndex)
-
-            if nearestCandidates.count > 4 {
-                nearestCandidates.removeLast()
-            }
-        }
-
-        let nearestKey = nearestCandidates
-            .map {
-                "\($0.candidate.target.dockItemName):\($0.candidate.target.processIdentifier):\(Int($0.distance * 100))"
-            }
-            .joined(separator: ",")
-
-        logProbeIfNeeded(
-            key: "miss:\(nearestKey)",
-            message: {
-                let nearestSummary = nearestCandidates
-                    .map {
-                        "\($0.candidate.target.dockItemName){app=\($0.candidate.target.logDescription), frame=\(NSStringFromRect($0.candidate.frame)), distance=\(String(format: "%.2f", $0.distance)), aliases=\($0.candidate.target.aliases.joined(separator: "|"))}"
-                    }
-                    .joined(separator: ", ")
-                return "Pointer missed all Dock items at \(NSStringFromPoint(appKitPoint)); evaluated \(snapshot.candidates.count) candidates; nearest = [\(nearestSummary)]"
-            }
-        )
-#endif
-    }
-
-    private func distanceFromPoint(_ point: CGPoint, to frame: CGRect) -> CGFloat {
-        if frame.contains(point) {
-            return 0
-        }
-
-        let dx = max(frame.minX - point.x, 0, point.x - frame.maxX)
-        let dy = max(frame.minY - point.y, 0, point.y - frame.maxY)
-        return sqrt((dx * dx) + (dy * dy))
     }
 }
 

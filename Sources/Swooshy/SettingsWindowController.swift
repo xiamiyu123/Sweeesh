@@ -591,6 +591,9 @@ private struct GestureSettingsSection: View {
                 isOn: $settingsStore.titleBarGesturesEnabled
             )
 
+            // Deprecated: this selector still exposes the legacy preview-mode
+            // flow because gesture execution and cancellation still branch on
+            // SettingsStore.executeGestureOnRelease.
             VStack(alignment: .leading, spacing: 12) {
                 Text(settingsStore.localized("guide.page.interaction.title"))
                     .font(.subheadline.weight(.medium))
@@ -762,6 +765,8 @@ private struct AdvancedSettingsPage: View {
                 )
             }
 
+            // Deprecated: reverse-cancel controls only affect the same legacy
+            // preview-mode flow retained above.
             SettingsCardSection(title: settingsStore.localized("settings.advanced.section.cancel")) {
                 Toggle(
                     settingsStore.localized("settings.advanced.reverse_cancel.enabled"),

@@ -35,6 +35,9 @@ final class DockGestureController {
     private var gestureStateWatchdogState: GestureStateSnapshot?
 
     private var touchSequenceTracker = TwoFingerTouchSequenceTracker()
+    // Deprecated: pending-release state belongs to the legacy preview-mode
+    // gesture flow. It remains because smooth docking, cancellation, and
+    // corner-drag commit logic still branch through release-time execution.
     private var pendingReleaseAction: PendingReleaseAction?
     private var escMonitor: Any?
     private var lastTouchCount: Int = 0
@@ -51,6 +54,7 @@ final class DockGestureController {
     private var smoothDockingSession: SmoothDockingSession?
     private let cornerDragTranslationThreshold: CGFloat = 0.06
 
+    // Deprecated: legacy preview-mode actions are staged here until release.
     private enum PendingReleaseAction {
         case dock(action: DockGestureAction, application: InteractionTarget)
         case titleBar(
@@ -1193,6 +1197,8 @@ final class DockGestureController {
         }
     }
 
+    // Deprecated: cancellation here only exists for the legacy preview-mode
+    // flow that can still back out before finger release.
     private func cancelPendingReleaseAction() {
         guard pendingReleaseAction != nil || activeCornerDragApplication != nil else {
             endSmoothDockingSession(restore: true)
@@ -1203,6 +1209,8 @@ final class DockGestureController {
         resetGestureStateForNewTouchSequence()
     }
 
+    // Deprecated: once preview mode is fully removed, actions should no longer
+    // need this release-time commit path.
     private func executePendingReleaseAction() {
         guard let action = pendingReleaseAction else { return }
         pendingReleaseAction = nil
@@ -1271,6 +1279,8 @@ final class DockGestureController {
         }
     }
 
+    // Deprecated preview-mode helper: tracks gesture progress so reverse motion
+    // can cancel a pending action before finger release.
     private func storeTouchAnchor(gesture: DockGestureKind, touches: [TrackpadTouchSample]) {
         pendingReleaseGestureKind = gesture
         guard touches.count >= 2 else {
@@ -1313,6 +1323,8 @@ final class DockGestureController {
         return CGFloat(maxThreshold - sensitivity * (maxThreshold - minThreshold))
     }
 
+    // Deprecated preview-mode helper: reverse cancellation only applies while a
+    // release-deferred gesture is pending.
     private func checkReverseCancellation(frame: TrackpadTouchFrame) {
         guard settingsStore.reverseCancelEnabled else { return }
         guard

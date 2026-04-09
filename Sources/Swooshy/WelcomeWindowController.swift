@@ -312,6 +312,8 @@ final class WelcomeGuideViewModel: ObservableObject {
         self.permissionGranted = permissionManager.isTrusted(promptIfNeeded: false)
     }
 
+    // Deprecated: onboarding still proxies the legacy preview-mode toggle until
+    // the release-deferred gesture path is removed from runtime settings.
     var executeGestureOnRelease: Bool {
         get { settingsStore.executeGestureOnRelease }
         set { settingsStore.executeGestureOnRelease = newValue }
@@ -499,6 +501,8 @@ private struct WelcomeGuideView: View {
                 .font(.body)
                 .fixedSize(horizontal: false, vertical: true)
 
+            // Deprecated: keep this onboarding choice in sync with the legacy
+            // preview-mode setting until the runtime path is fully deleted.
             HStack(spacing: 20) {
                 InteractionStyleCard(
                     title: viewModel.localized("guide.page.interaction.immediate.title"),

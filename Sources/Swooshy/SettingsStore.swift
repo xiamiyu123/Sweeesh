@@ -141,6 +141,9 @@ final class SettingsStore {
         }
     }
 
+    // Deprecated: retained for the legacy preview-mode flow that defers gesture
+    // commits until finger release. Keep persisting it until that path is
+    // removed from DockGestureController and the onboarding/settings UI.
     var executeGestureOnRelease: Bool {
         didSet {
             guard oldValue != executeGestureOnRelease else { return }
@@ -150,6 +153,8 @@ final class SettingsStore {
         }
     }
 
+    // Deprecated: reverse cancel only affects the legacy preview-mode flow
+    // above, but the value is still persisted for compatibility.
     var reverseCancelEnabled: Bool {
         didSet {
             guard oldValue != reverseCancelEnabled else { return }
@@ -159,6 +164,8 @@ final class SettingsStore {
         }
     }
 
+    // Deprecated: sensitivity tuning for the legacy preview-mode reverse-cancel
+    // behavior. Remove with executeGestureOnRelease once that path is gone.
     var reverseCancelSensitivity: Double {
         didSet {
             guard oldValue != reverseCancelSensitivity else { return }
@@ -356,6 +363,8 @@ final class SettingsStore {
             in: userDefaults
         )
         
+        // Deprecated preview-mode settings still load from UserDefaults so
+        // older installs keep behaving consistently until the flow is removed.
         self.executeGestureOnRelease = Self.boolValue(
             forKey: Keys.executeGestureOnRelease,
             defaultValue: false,
@@ -781,6 +790,7 @@ final class SettingsStore {
         static let smartPinchExitFullScreenEnabled = "settings.smartPinchExitFullScreenEnabled"
         static let smartBrowserTabCloseEnabled = "settings.smartBrowserTabCloseEnabled"
         static let experimentalBrowserTabCloseEnabled = "settings.experimentalBrowserTabCloseEnabled"
+        // Deprecated preview-mode persistence keys.
         static let executeGestureOnRelease = "settings.executeGestureOnRelease"
         static let reverseCancelEnabled = "settings.reverseCancelEnabled"
         static let reverseCancelSensitivity = "settings.reverseCancelSensitivity"

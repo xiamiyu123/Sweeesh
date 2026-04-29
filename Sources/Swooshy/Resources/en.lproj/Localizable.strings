@@ -194,7 +194,7 @@
 "guide.page.experimental.bullet2" = "If the pointer is not over any tab, the gesture falls back to the normal close-window or quit behavior.";
 "guide.page.experimental.bullet3" = "Supports major browsers, and also supports VS Code-based editors such as Visual Studio Code, Cursor, Antigravity, and more.";
 "guide.page.experimental.bullet4" = "Double-pinch confirmation: when performing a close or quit gesture on a supported browser or editor, Swooshy shows a confirmation prompt first. Pinch again to confirm, or wait for it to cancel automatically.";
-"confirmation.pinch_again" = "Pinch again to confirm";
+"confirmation.pinch_again" = "Pinch again to close window";
 
 "error.permission_missing" = "Accessibility permission is missing. Enable Swooshy in System Settings and try again.";
 "error.no_frontmost_app" = "Unable to find the frontmost application.";

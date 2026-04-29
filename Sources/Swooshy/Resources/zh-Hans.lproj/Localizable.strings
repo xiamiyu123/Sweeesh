@@ -194,7 +194,7 @@
 "guide.page.experimental.bullet2" = "如果指针不在任何标签页上，手势会回退为正常的关闭窗口或退出应用操作。";
 "guide.page.experimental.bullet3" = "理论支持主流浏览器，也支持 Visual Studio Code、Cursor、反重力等 VSCode 系编辑器。(其中 Safari 仅支持顶栏，不支持侧边栏)。";
 "guide.page.experimental.bullet4" = "双次捏合确认：在受支持的浏览器或编辑器上做关闭或退出手势时，Swooshy 会先弹出确认提示，再次捏合即可确认操作，等待超时则自动取消。";
-"confirmation.pinch_again" = "请再次捏合以确认";
+"confirmation.pinch_again" = "再次捏合关闭窗口";
 
 "error.permission_missing" = "缺少辅助功能权限。请在系统设置中启用 Swooshy 后重试。";
 "error.no_frontmost_app" = "无法找到当前前台应用。";

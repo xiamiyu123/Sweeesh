@@ -157,6 +157,8 @@
 "settings.advanced.smart_pinch_exit_full_screen.footer" = "When the app is in Native Full Screen (with the Title-bar hovering down), Title-bar 'Pinch In' gestures will be intelligently intercepted as 'Exit Full Screen', regardless of their actual mapping in the Settings. This prevents unintended app closure when you actually just meant to leave the Virtual Desktop space.";
 "settings.debug_logging.enabled" = "Enable debug logging";
 "settings.shortcuts.recorder_placeholder" = "Press shortcut";
+"settings.shortcuts.registration_failed.accessibility_label" = "Shortcut registration failed";
+"settings.shortcuts.registration_failed.tooltip" = "Shortcut registration failed, so this shortcut will not work. It may already be used by macOS, a system feature, or another app. Try recording a different shortcut.";
 "settings.shortcuts.reset" = "Reset shortcut defaults";
 
 "settings.advanced.open" = "Advanced Settings…";

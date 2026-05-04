@@ -1,4 +1,5 @@
 import AppKit
+import Carbon.HIToolbox
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -28,6 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             )
         }
         let permissionManager = AccessibilityPermissionManager()
+        let hotKeyRegistrationStatusStore = HotKeyRegistrationStatusStore()
         let windowRegistry = WindowRegistry()
         let dockTargetResolver = DockTargetResolver(registry: windowRegistry)
         let windowManager = WindowManager(
@@ -52,6 +54,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         let settingsWindowController = SettingsWindowController(
             settingsStore: settingsStore,
+            hotKeyRegistrationStatusStore: hotKeyRegistrationStatusStore,
             onPointerInsideChanged: { [weak dockGestureController] isInside in
                 dockGestureController?.setSettingsWindowHoverSuppressed(isInside)
             }
@@ -79,12 +82,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         globalHotKeyController = GlobalHotKeyController(
             windowActionRunner: windowActionRunner,
             alertPresenter: alertPresenter,
-            settingsStore: settingsStore
+            settingsStore: settingsStore,
+            registrationStatusStore: hotKeyRegistrationStatusStore
         )
 
         self.dockGestureController = dockGestureController
 
-        if settingsStore.consumeWelcomeGuidePresentationFlag() {
+        if launchOptions.previewHotKeyRegistrationFailure {
+            let previewAction = WindowAction.center
+            hotKeyRegistrationStatusStore.recordFailure(
+                HotKeyRegistrationFailure(
+                    action: previewAction,
+                    binding: settingsStore.hotKeyBinding(for: previewAction),
+                    status: OSStatus(eventHotKeyExistsErr)
+                )
+            )
+            settingsWindowController.showShortcuts()
+            DebugLog.info(
+                DebugLog.app,
+                "Launch argument \(LaunchOptions.previewHotKeyRegistrationFailureArgument) detected; previewing hotkey registration failure style"
+            )
+        } else if settingsStore.consumeWelcomeGuidePresentationFlag() {
             welcomeWindowController.show()
         }
 

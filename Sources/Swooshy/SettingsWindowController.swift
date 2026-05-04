@@ -6,6 +6,8 @@ import Observation
 @MainActor
 final class SettingsWindowController: NSWindowController, NSWindowDelegate {
     private let settingsStore: SettingsStore
+    private let hotKeyRegistrationStatusStore: HotKeyRegistrationStatusStore
+    private let navigationState = SettingsNavigationState()
     private let onPointerInsideChanged: (Bool) -> Void
     private var settingsObserver: NSObjectProtocol?
     private var pointerTrackingArea: NSTrackingArea?
@@ -13,12 +15,18 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 
     init(
         settingsStore: SettingsStore,
+        hotKeyRegistrationStatusStore: HotKeyRegistrationStatusStore = HotKeyRegistrationStatusStore(),
         onPointerInsideChanged: @escaping (Bool) -> Void = { _ in }
     ) {
         self.settingsStore = settingsStore
+        self.hotKeyRegistrationStatusStore = hotKeyRegistrationStatusStore
         self.onPointerInsideChanged = onPointerInsideChanged
 
-        let rootView = SettingsView(settingsStore: settingsStore)
+        let rootView = SettingsView(
+            settingsStore: settingsStore,
+            hotKeyRegistrationStatusStore: hotKeyRegistrationStatusStore,
+            navigationState: navigationState
+        )
         let hostingController = NSHostingController(rootView: rootView)
         let window = NSWindow(contentViewController: hostingController)
 
@@ -74,6 +82,11 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         window?.makeKeyAndOrderFront(nil)
         NSApplication.shared.activate(ignoringOtherApps: true)
         updatePointerInsideContentViewState()
+    }
+
+    func showShortcuts() {
+        navigationState.selectedPage = .shortcuts
+        show()
     }
 
     private func updateWindowTitle() {
@@ -151,19 +164,21 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 
 private struct SettingsView: View {
     @Bindable var settingsStore: SettingsStore
+    @Bindable var hotKeyRegistrationStatusStore: HotKeyRegistrationStatusStore
+    @Bindable var navigationState: SettingsNavigationState
     @State private var launchAtLoginController = LaunchAtLoginController()
-    @State private var selectedPage: SettingsPage? = .general
 
     var body: some View {
         NavigationSplitView {
             SettingsSidebar(
-                selection: $selectedPage,
+                selection: $navigationState.selectedPage,
                 settingsStore: settingsStore
             )
         } detail: {
             SettingsDetailPage(
-                page: selectedPage ?? .general,
+                page: navigationState.selectedPage ?? .general,
                 settingsStore: settingsStore,
+                hotKeyRegistrationStatusStore: hotKeyRegistrationStatusStore,
                 launchAtLoginController: $launchAtLoginController
             )
         }
@@ -173,6 +188,12 @@ private struct SettingsView: View {
             launchAtLoginController.refresh(localize: settingsStore.localized)
         }
     }
+}
+
+@MainActor
+@Observable
+private final class SettingsNavigationState {
+    var selectedPage: SettingsPage? = .general
 }
 
 private enum SettingsPage: String, CaseIterable, Identifiable {
@@ -243,6 +264,7 @@ private struct SettingsSidebar: View {
 private struct SettingsDetailPage: View {
     let page: SettingsPage
     @Bindable var settingsStore: SettingsStore
+    @Bindable var hotKeyRegistrationStatusStore: HotKeyRegistrationStatusStore
     @Binding var launchAtLoginController: LaunchAtLoginController
 
     var body: some View {
@@ -260,7 +282,10 @@ private struct SettingsDetailPage: View {
             case .titleBarGestures:
                 TitleBarGestureMappingsPage(settingsStore: settingsStore)
             case .shortcuts:
-                HotKeysSettingsPage(settingsStore: settingsStore)
+                HotKeysSettingsPage(
+                    settingsStore: settingsStore,
+                    hotKeyRegistrationStatusStore: hotKeyRegistrationStatusStore
+                )
             case .advanced:
                 AdvancedSettingsPage(settingsStore: settingsStore)
             }
@@ -448,19 +473,13 @@ private struct TitleBarGestureMappingsPage: View {
 
 private struct HotKeysSettingsPage: View {
     @Bindable var settingsStore: SettingsStore
-
-    private var preferredLanguages: [String] {
-        settingsStore.preferredLanguages
-    }
+    @Bindable var hotKeyRegistrationStatusStore: HotKeyRegistrationStatusStore
 
     private var rows: [HotKeyRowModel] {
-        WindowAction.allCases.map { action in
-            HotKeyRowModel(
-                action: action,
-                title: action.title(preferredLanguages: preferredLanguages),
-                binding: settingsStore.hotKeyBinding(for: action)
-            )
-        }
+        HotKeySettingsRowFactory.rows(
+            settingsStore: settingsStore,
+            registrationStatusStore: hotKeyRegistrationStatusStore
+        )
     }
 
     var body: some View {
@@ -502,12 +521,30 @@ private struct GestureActionRowModel<Gesture: Hashable & Identifiable, Action: H
     var id: Gesture { gesture }
 }
 
-private struct HotKeyRowModel: Identifiable {
+struct HotKeyRowModel: Identifiable {
     let action: WindowAction
     let title: String
     let binding: HotKeyBinding
+    let registrationFailure: HotKeyRegistrationFailure?
 
     var id: WindowAction { action }
+}
+
+enum HotKeySettingsRowFactory {
+    @MainActor
+    static func rows(
+        settingsStore: SettingsStore,
+        registrationStatusStore: HotKeyRegistrationStatusStore
+    ) -> [HotKeyRowModel] {
+        WindowAction.allCases.map { action in
+            HotKeyRowModel(
+                action: action,
+                title: action.title(preferredLanguages: settingsStore.preferredLanguages),
+                binding: settingsStore.hotKeyBinding(for: action),
+                registrationFailure: registrationStatusStore.failure(for: action)
+            )
+        }
+    }
 }
 
 private struct GeneralSettingsSection: View {
@@ -1250,6 +1287,12 @@ private struct HotKeysSection: View {
                     HotKeyEditorRow(
                         row: row,
                         placeholder: settingsStore.localized("settings.shortcuts.recorder_placeholder"),
+                        registrationFailureTooltip: settingsStore.localized(
+                            "settings.shortcuts.registration_failed.tooltip"
+                        ),
+                        registrationFailureAccessibilityLabel: settingsStore.localized(
+                            "settings.shortcuts.registration_failed.accessibility_label"
+                        ),
                         onChange: { settingsStore.updateHotKeyBinding($0) }
                     )
                 }
@@ -1284,19 +1327,92 @@ private struct SettingsPickerOptionLabel<Value: Hashable>: View {
 private struct HotKeyEditorRow: View {
     let row: HotKeyRowModel
     let placeholder: String
+    let registrationFailureTooltip: String
+    let registrationFailureAccessibilityLabel: String
     let onChange: (HotKeyBinding) -> Void
 
     var body: some View {
-        HStack {
+        HStack(spacing: 12) {
             Text(row.title)
             Spacer()
-            ShortcutRecorderField(
-                binding: row.binding,
-                placeholder: placeholder,
-                onChange: onChange
-            )
-            .frame(width: 160, height: 28)
+            HStack(spacing: 6) {
+                ShortcutRecorderField(
+                    binding: row.binding,
+                    placeholder: placeholder,
+                    onChange: onChange
+                )
+                .frame(width: 160, height: 28)
+
+                HotKeyRegistrationFailureIndicator(
+                    failure: row.registrationFailure,
+                    tooltip: registrationFailureTooltip,
+                    accessibilityLabel: registrationFailureAccessibilityLabel
+                )
+            }
         }
+    }
+}
+
+private struct HotKeyRegistrationFailureIndicator: View {
+    let failure: HotKeyRegistrationFailure?
+    let tooltip: String
+    let accessibilityLabel: String
+    @State private var isShowingDetails = false
+
+    var body: some View {
+        Group {
+            if failure != nil {
+                Image(systemName: "exclamationmark.circle.fill")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(Color(nsColor: .systemRed))
+                    .frame(width: 16, height: 28)
+                    .contentShape(Rectangle())
+                    .help(tooltip)
+                    .onHover { isHovering in
+                        isShowingDetails = isHovering
+                    }
+                    .popover(
+                        isPresented: $isShowingDetails,
+                        arrowEdge: .trailing
+                    ) {
+                        HotKeyRegistrationFailurePopover(
+                            title: accessibilityLabel,
+                            message: tooltip
+                        )
+                    }
+                    .accessibilityLabel(accessibilityLabel)
+            } else {
+                Color.clear
+                    .frame(width: 16, height: 28)
+                    .accessibilityHidden(true)
+            }
+        }
+    }
+}
+
+private struct HotKeyRegistrationFailurePopover: View {
+    let title: String
+    let message: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: "exclamationmark.circle.fill")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Color(nsColor: .systemRed))
+                .padding(.top, 1)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.headline)
+
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .frame(width: 280, alignment: .leading)
+        .padding(12)
     }
 }
 

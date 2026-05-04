@@ -18,11 +18,13 @@ struct LaunchOptionsTests {
                 "/Applications/Swooshy.app/Contents/MacOS/Swooshy",
                 LaunchOptions.clearCacheArgument,
                 LaunchOptions.resetUserConfigurationArgument,
+                LaunchOptions.previewHotKeyRegistrationFailureArgument,
             ]
         )
 
         #expect(options.clearCache == true)
         #expect(options.resetUserConfiguration == true)
+        #expect(options.previewHotKeyRegistrationFailure == true)
     }
 
     @Test

@@ -2,11 +2,98 @@ import AppKit
 import Carbon.HIToolbox
 
 @MainActor
+protocol HotKeyRegistering {
+    func registerHotKey(
+        keyCode: UInt32,
+        modifiers: UInt32,
+        hotKeyID: EventHotKeyID,
+        target: EventTargetRef?,
+        options: OptionBits,
+        hotKeyRef: inout EventHotKeyRef?
+    ) -> OSStatus
+
+    func unregisterHotKey(_ hotKeyRef: EventHotKeyRef)
+}
+
+@MainActor
+struct CarbonHotKeyRegistrar: HotKeyRegistering {
+    func registerHotKey(
+        keyCode: UInt32,
+        modifiers: UInt32,
+        hotKeyID: EventHotKeyID,
+        target: EventTargetRef?,
+        options: OptionBits,
+        hotKeyRef: inout EventHotKeyRef?
+    ) -> OSStatus {
+        RegisterEventHotKey(
+            keyCode,
+            modifiers,
+            hotKeyID,
+            target,
+            options,
+            &hotKeyRef
+        )
+    }
+
+    func unregisterHotKey(_ hotKeyRef: EventHotKeyRef) {
+        UnregisterEventHotKey(hotKeyRef)
+    }
+}
+
+@MainActor
+protocol HotKeyEventHandling {
+    var applicationEventTarget: EventTargetRef? { get }
+
+    func installHotKeyPressedHandler(
+        _ handler: EventHandlerUPP,
+        userData: UnsafeMutableRawPointer,
+        eventHandlerRef: inout EventHandlerRef?
+    ) -> OSStatus
+
+    func removeEventHandler(_ eventHandlerRef: EventHandlerRef)
+}
+
+@MainActor
+struct CarbonHotKeyEventHandler: HotKeyEventHandling {
+    var applicationEventTarget: EventTargetRef? {
+        GetApplicationEventTarget()
+    }
+
+    func installHotKeyPressedHandler(
+        _ handler: EventHandlerUPP,
+        userData: UnsafeMutableRawPointer,
+        eventHandlerRef: inout EventHandlerRef?
+    ) -> OSStatus {
+        var eventSpec = EventTypeSpec(
+            eventClass: OSType(kEventClassKeyboard),
+            eventKind: UInt32(kEventHotKeyPressed)
+        )
+
+        return InstallEventHandler(
+            GetApplicationEventTarget(),
+            handler,
+            1,
+            &eventSpec,
+            userData,
+            &eventHandlerRef
+        )
+    }
+
+    func removeEventHandler(_ eventHandlerRef: EventHandlerRef) {
+        RemoveEventHandler(eventHandlerRef)
+    }
+}
+
+@MainActor
 final class GlobalHotKeyController {
     private let windowActionRunner: WindowActionRunning
     private let alertPresenter: AlertPresenting
     private let settingsStore: SettingsStore
+    private let registrationStatusStore: HotKeyRegistrationStatusStore
+    private let hotKeyRegistrar: HotKeyRegistering
+    private let eventHandling: HotKeyEventHandling
     private var eventHandlerRef: EventHandlerRef?
+    private var eventHandlerInstalled = false
     private var hotKeyRefs: [EventHotKeyRef?] = []
     private var hasShownPermissionHint = false
     private var settingsObserver: NSObjectProtocol?
@@ -14,11 +101,17 @@ final class GlobalHotKeyController {
     init(
         windowActionRunner: WindowActionRunning,
         alertPresenter: AlertPresenting,
-        settingsStore: SettingsStore
+        settingsStore: SettingsStore,
+        registrationStatusStore: HotKeyRegistrationStatusStore = HotKeyRegistrationStatusStore(),
+        hotKeyRegistrar: HotKeyRegistering = CarbonHotKeyRegistrar(),
+        eventHandling: HotKeyEventHandling = CarbonHotKeyEventHandler()
     ) {
         self.windowActionRunner = windowActionRunner
         self.alertPresenter = alertPresenter
         self.settingsStore = settingsStore
+        self.registrationStatusStore = registrationStatusStore
+        self.hotKeyRegistrar = hotKeyRegistrar
+        self.eventHandling = eventHandling
 
         installEventHandler()
         syncRegisteredHotKeys()
@@ -34,33 +127,31 @@ final class GlobalHotKeyController {
         unregisterHotKeys()
 
         if let eventHandlerRef {
-            RemoveEventHandler(eventHandlerRef)
+            eventHandling.removeEventHandler(eventHandlerRef)
             self.eventHandlerRef = nil
         }
+        eventHandlerInstalled = false
+        registrationStatusStore.clear()
     }
 
     private func installEventHandler() {
-        var eventSpec = EventTypeSpec(
-            eventClass: OSType(kEventClassKeyboard),
-            eventKind: UInt32(kEventHotKeyPressed)
-        )
-
         let selfPointer = UnsafeMutableRawPointer(Unmanaged.passUnretained(self).toOpaque())
 
-        let status = InstallEventHandler(
-            GetApplicationEventTarget(),
+        let status = eventHandling.installHotKeyPressedHandler(
             Self.eventHandler,
-            1,
-            &eventSpec,
-            selfPointer,
-            &eventHandlerRef
+            userData: selfPointer,
+            eventHandlerRef: &eventHandlerRef
         )
 
         guard status == noErr else {
             eventHandlerRef = nil
+            eventHandlerInstalled = false
+            registrationStatusStore.markHandlerUnavailable()
             DebugLog.error(DebugLog.hotkeys, "Failed to install global hotkey event handler; status \(status)")
             return
         }
+
+        eventHandlerInstalled = true
     }
 
     private func observeSettings() {
@@ -82,13 +173,15 @@ final class GlobalHotKeyController {
 
     private func syncRegisteredHotKeys() {
         unregisterHotKeys()
+        registrationStatusStore.clear()
 
         guard settingsStore.hotKeysEnabled else {
             DebugLog.info(DebugLog.hotkeys, "Global hotkeys disabled")
             return
         }
 
-        guard eventHandlerRef != nil else {
+        guard eventHandlerInstalled else {
+            registrationStatusStore.markHandlerUnavailable()
             DebugLog.error(DebugLog.hotkeys, "Skipping global hotkey registration because event handler is unavailable")
             return
         }
@@ -106,13 +199,13 @@ final class GlobalHotKeyController {
                 id: UInt32(binding.action.rawValue + 1)
             )
 
-            let status = RegisterEventHotKey(
-                binding.keyCode,
-                binding.carbonModifiers,
-                hotKeyID,
-                GetApplicationEventTarget(),
-                0,
-                &hotKeyRef
+            let status = hotKeyRegistrar.registerHotKey(
+                keyCode: binding.keyCode,
+                modifiers: binding.carbonModifiers,
+                hotKeyID: hotKeyID,
+                target: eventHandling.applicationEventTarget,
+                options: 0,
+                hotKeyRef: &hotKeyRef
             )
 
             if status == noErr {
@@ -122,6 +215,13 @@ final class GlobalHotKeyController {
                     "Registered hotkey for \(binding.action.title(preferredLanguages: settingsStore.preferredLanguages)) as \(binding.modifiers.displayString)\(binding.menuDisplayKey)"
                 )
             } else {
+                registrationStatusStore.recordFailure(
+                    HotKeyRegistrationFailure(
+                        action: binding.action,
+                        binding: binding,
+                        status: status
+                    )
+                )
                 DebugLog.error(
                     DebugLog.hotkeys,
                     "Failed to register hotkey for \(binding.action.title(preferredLanguages: settingsStore.preferredLanguages)) with status \(status)"
@@ -133,7 +233,7 @@ final class GlobalHotKeyController {
     private func unregisterHotKeys() {
         for hotKeyRef in hotKeyRefs {
             if let hotKeyRef {
-                UnregisterEventHotKey(hotKeyRef)
+                hotKeyRegistrar.unregisterHotKey(hotKeyRef)
             }
         }
 

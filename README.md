@@ -267,6 +267,8 @@ open and hackable alternative.
 - `swift run Swooshy --reset-user-config`: clear user config before launch
 - `open /Applications/Swooshy.app --args --reset-user-config`: clear config and
   launch the installed `.app`
+- [Development Log](docs/development-log.md): special launch arguments and
+  startup debug helpers
 - With debug logging enabled, logs are written to
   `~/Library/Logs/Swooshy/debug.log`
 

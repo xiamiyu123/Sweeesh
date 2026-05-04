@@ -157,6 +157,8 @@
 "settings.advanced.smart_pinch_exit_full_screen.footer" = "在原生的 macOS 虚拟桌面全屏状态下（标题栏下拉时），不论你为标题栏的「捏合」手势绑定了什么动作，系统都会将其智能识别拦截为「退出全屏桌面」。这能避免在此直觉操作下不小心触发关闭窗口。";
 "settings.debug_logging.enabled" = "启用调试日志";
 "settings.shortcuts.recorder_placeholder" = "请按快捷键";
+"settings.shortcuts.registration_failed.accessibility_label" = "快捷键注册失败";
+"settings.shortcuts.registration_failed.tooltip" = "快捷键注册失败，当前快捷键不会生效。它可能已被 macOS、系统功能或其他应用占用。请尝试重新录制。";
 "settings.shortcuts.reset" = "恢复默认快捷键";
 
 "settings.advanced.open" = "高级设置…";

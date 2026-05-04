@@ -3,13 +3,18 @@ import Foundation
 struct LaunchOptions: Equatable {
     static let resetUserConfigurationArgument = "--reset-user-config"
     static let clearCacheArgument = "--clear-cache"
+    static let previewHotKeyRegistrationFailureArgument = "--preview-hotkey-registration-failure"
 
     let resetUserConfiguration: Bool
     let clearCache: Bool
+    let previewHotKeyRegistrationFailure: Bool
 
     init(arguments: [String] = ProcessInfo.processInfo.arguments) {
         self.resetUserConfiguration = arguments.contains(Self.resetUserConfigurationArgument)
         self.clearCache = arguments.contains(Self.clearCacheArgument)
+        self.previewHotKeyRegistrationFailure = arguments.contains(
+            Self.previewHotKeyRegistrationFailureArgument
+        )
     }
 
     @MainActor

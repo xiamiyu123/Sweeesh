@@ -367,7 +367,7 @@ final class WelcomeGuideViewModel: ObservableObject {
     }
 
     var canOpenSettings: Bool {
-        permissionGranted
+        true
     }
 
     var pageIndicatorText: String {

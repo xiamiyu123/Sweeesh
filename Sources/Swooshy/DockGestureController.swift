@@ -794,9 +794,15 @@ final class DockGestureController {
         )
 
         if let pending = pendingPinchConfirmation,
-           case .titleBar(let pendingAction, _, _, let pendingReplaces) = pending.source,
-           pendingAction == action,
-           pendingReplaces == replacesWithTabClose {
+           case .titleBar(let pendingAction, let pendingEvent, _, let pendingReplaces) = pending.source,
+           titleBarPinchConfirmationMatches(
+               pendingAction: pendingAction,
+               pendingApplication: pendingEvent.application,
+               pendingReplacesWithTabClose: pendingReplaces,
+               action: action,
+               application: event.application,
+               replacesWithTabClose: replacesWithTabClose
+           ) {
             clearPinchConfirmation()
             DebugLog.info(DebugLog.dock, "Pinch confirmation accepted for title-bar action \(String(describing: action))")
             executeTitleBarAction(
@@ -1844,6 +1850,19 @@ func cornerDragTransitionAction(
     default:
         return currentAction
     }
+}
+
+func titleBarPinchConfirmationMatches(
+    pendingAction: WindowAction,
+    pendingApplication: InteractionTarget,
+    pendingReplacesWithTabClose: Bool,
+    action: WindowAction,
+    application: InteractionTarget,
+    replacesWithTabClose: Bool
+) -> Bool {
+    pendingAction == action &&
+        pendingApplication == application &&
+        pendingReplacesWithTabClose == replacesWithTabClose
 }
 
 enum TitleBarHoverSource: Equatable {

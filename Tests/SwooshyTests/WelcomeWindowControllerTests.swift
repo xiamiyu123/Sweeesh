@@ -78,4 +78,22 @@ struct WelcomeWindowControllerTests {
         #expect(viewModel.experimentalBrowserTabCloseEnabled == false)
         #expect(viewModel.smartBrowserTabCloseEnabled == false)
     }
+
+    @Test
+    func welcomeGuideCanOpenSettingsBeforePermissionIsGranted() {
+        let suiteName = "Swooshy.WelcomeWindowControllerTests.Permission.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: suiteName)!
+        defaults.removePersistentDomain(forName: suiteName)
+
+        let store = SettingsStore(userDefaults: defaults)
+        let viewModel = WelcomeGuideViewModel(
+            settingsStore: store,
+            permissionManager: PermissionManagerStub(isTrustedValue: false),
+            onOpenSettings: {},
+            onDismiss: {}
+        )
+
+        #expect(viewModel.permissionGranted == false)
+        #expect(viewModel.canOpenSettings == true)
+    }
 }

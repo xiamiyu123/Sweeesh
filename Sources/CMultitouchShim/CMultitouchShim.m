@@ -18,6 +18,26 @@ static MTRegisterContactFrameCallbackFunction sMTRegisterContactFrameCallback = 
 static MTDeviceStartFunction sMTDeviceStart = NULL;
 static MTDeviceStopFunction sMTDeviceStop = NULL;
 
+static bool SwooshyMTHasLoadedSymbols(void) {
+    return sLibraryHandle != NULL &&
+           sMTDeviceCreateList != NULL &&
+           sMTRegisterContactFrameCallback != NULL &&
+           sMTDeviceStart != NULL &&
+           sMTDeviceStop != NULL;
+}
+
+static void SwooshyMTUnloadSymbols(void) {
+    if (sLibraryHandle != NULL) {
+        dlclose(sLibraryHandle);
+    }
+
+    sLibraryHandle = NULL;
+    sMTDeviceCreateList = NULL;
+    sMTRegisterContactFrameCallback = NULL;
+    sMTDeviceStart = NULL;
+    sMTDeviceStop = NULL;
+}
+
 static int swooshy_mt_callback(int device, const SwooshyMTFinger *data, int fingerCount, double timestamp, int frame) {
     if (sClientCallback != NULL) {
         sClientCallback(device, data, fingerCount, timestamp, frame, sClientContext);
@@ -26,7 +46,7 @@ static int swooshy_mt_callback(int device, const SwooshyMTFinger *data, int fing
 }
 
 static bool SwooshyMTLoadSymbols(void) {
-    if (sLibraryHandle != NULL) {
+    if (SwooshyMTHasLoadedSymbols()) {
         return true;
     }
 
@@ -40,10 +60,12 @@ static bool SwooshyMTLoadSymbols(void) {
     sMTDeviceStart = (MTDeviceStartFunction)dlsym(sLibraryHandle, "MTDeviceStart");
     sMTDeviceStop = (MTDeviceStopFunction)dlsym(sLibraryHandle, "MTDeviceStop");
 
-    return sMTDeviceCreateList != NULL &&
-           sMTRegisterContactFrameCallback != NULL &&
-           sMTDeviceStart != NULL &&
-           sMTDeviceStop != NULL;
+    if (!SwooshyMTHasLoadedSymbols()) {
+        SwooshyMTUnloadSymbols();
+        return false;
+    }
+
+    return true;
 }
 
 bool SwooshyMTStartMonitoring(SwooshyMTContactCallback callback, void *context) {
@@ -58,6 +80,8 @@ bool SwooshyMTStartMonitoring(SwooshyMTContactCallback callback, void *context) 
     sDevices = sMTDeviceCreateList();
 
     if (sDevices == NULL) {
+        sClientCallback = NULL;
+        sClientContext = NULL;
         return false;
     }
 

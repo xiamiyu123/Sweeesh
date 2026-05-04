@@ -88,7 +88,7 @@ struct StatusMenuContentBuilder {
             StatusMenuEntry(
                 kind: .settings,
                 title: localized("menu.settings"),
-                isEnabled: permissionGranted
+                isEnabled: true
             ),
             StatusMenuEntry(
                 kind: .separator,
@@ -103,7 +103,7 @@ struct StatusMenuContentBuilder {
             StatusMenuEntry(
                 kind: .quit,
                 title: localized("menu.quit"),
-                isEnabled: permissionGranted
+                isEnabled: true
             ),
         ]
     }

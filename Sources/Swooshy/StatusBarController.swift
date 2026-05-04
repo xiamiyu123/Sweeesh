@@ -161,7 +161,6 @@ final class StatusBarController: NSObject, NSMenuDelegate {
 
     @objc
     private func showSettingsWindow() {
-        guard handleMissingPermissionFallback(for: "settings") == false else { return }
         settingsWindowController.show()
     }
 
@@ -257,7 +256,7 @@ final class StatusBarController: NSObject, NSMenuDelegate {
                 keyEquivalent: ","
             )
             item.target = self
-            item.isEnabled = enforcePermissionLock ? false : entry.isEnabled
+            item.isEnabled = entry.isEnabled
             item.keyEquivalentModifierMask = [.command]
             return item
         case .quit:

@@ -58,10 +58,33 @@ struct StatusMenuContentBuilderTests {
         )
 
         let enabledEntries = entries.filter(\.isEnabled)
-        #expect(enabledEntries.count == 3)
+        #expect(enabledEntries.count == 5)
         #expect(enabledEntries.contains { $0.kind == .permission })
         #expect(enabledEntries.contains { $0.kind == .refresh })
+        #expect(enabledEntries.contains { $0.kind == .settings })
         #expect(enabledEntries.contains { $0.kind == .help })
+        #expect(enabledEntries.contains { $0.kind == .quit })
+    }
+
+    @Test
+    func quitEntryRemainsEnabledWhenPermissionMissing() {
+        let entries = builder.makeEntries(
+            permissionGranted: false,
+            preferredLanguages: ["en-US"]
+        )
+
+        #expect(entries.first(where: { $0.kind == .quit })?.isEnabled == true)
+    }
+
+    @Test
+    func settingsEntryRemainsEnabledWhenPermissionMissing() {
+        let entries = builder.makeEntries(
+            permissionGranted: false,
+            preferredLanguages: ["en-US"]
+        )
+
+        #expect(entries.first(where: { $0.kind == .settings })?.isEnabled == true)
+        #expect(entries.first(where: { $0.kind == .windowAction(.leftHalf) })?.isEnabled == false)
     }
 
     @Test
